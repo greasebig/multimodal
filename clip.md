@@ -44,9 +44,9 @@ DALL·E的整体流程
 ![image](https://github.com/greasebig/multimodal/assets/121388156/a6e1ed84-6217-4d2d-95c7-0121d7c23e92)
 
 - CLIP-Event：Connecting Text and Images with Event Structures
--- 将事件中的人与动作链接起来，相当于先通过文本抽取一些关系组合，再与图像进行配对
--- 正样本就是抽取的事件，负样本为替换的其他事件，也可替换动作主体。
-- CLIPSeg
+  将事件中的人与动作链接起来，相当于先通过文本抽取一些关系组合，再与图像进行配对
+  正样本就是抽取的事件，负样本为替换的其他事件，也可替换动作主体。
+- CLIPSeg：Image Segmentation Using Text and Image Prompts
 
 - 
 - 
