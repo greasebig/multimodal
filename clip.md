@@ -20,9 +20,17 @@ prompt template。比如对于ImageNet的类别，首先把它变成"A photo of 
 ```
 - loss
 ```
-算两个loss，一个是image的，一个是text的，最后把两个loss加起来就平均。这个操作在对比学习中是很常见的，都是用的这种对称式的目标函数
+算两个loss，一个是image的，一个是text的，最后把两个loss加起来就平均。
+这个操作在对比学习中是很常见的，都是用的这种对称式的目标函数
 ```
+- CLIP核心实现的伪代码
+![image](https://github.com/greasebig/multimodal/assets/121388156/a1536d43-64c1-4c98-bb81-a974556105ca)
+```得到对应的特征之后，再经过一个投射层（即W_i和W_t)，投射层的意义是学习如何从单模态变成多模态，
+投射完之后再做l2 norm，就得到了最终的用来对比的特征I_e和T_e，
 
+现在有n个图像的特征，和n个文本的特征，接下来就是算consine similarity，
+算的相似度就是最后要分类的logits，最后logits和ground truth做交叉熵loss
+```
 
 ## 拓展应用：DALL-E 与 DALL-E2
 ```
