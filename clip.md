@@ -39,5 +39,15 @@ DALL·E的整体流程
 - DALL-E 2中的先验子模型和图像生成子模型都是基于扩散模型的
 - DALL-E 2使用了一种改进的GLIDE模型，以两种方式使用投影的CLIP文本嵌入(# 未读懂)
 
+## 拓展应用 三篇CVPR2022
+- ActionCLIP ：A new paradigm for Video Action Recognition
+![image](https://github.com/greasebig/multimodal/assets/121388156/a6e1ed84-6217-4d2d-95c7-0121d7c23e92)
 
+- CLIP-Event：Connecting Text and Images with Event Structures
+-- 将事件中的人与动作链接起来，相当于先通过文本抽取一些关系组合，再与图像进行配对
+-- 正样本就是抽取的事件，负样本为替换的其他事件，也可替换动作主体。
+- CLIPSeg
 
+- 
+- 
+- 
