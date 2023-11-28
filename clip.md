@@ -78,4 +78,7 @@ DALL·E的整体流程
 正样本就是抽取的事件，负样本为替换的其他事件，也可替换动作主体。
 - CLIPSeg：Image Segmentation Using Text and Image Prompts
 ![image](https://github.com/greasebig/multimodal/assets/121388156/2d3c843c-13ae-44d6-bb3e-c550e5c137cb)
+- StyleCLIP
+- CLIPDraw
+- CLIPS
 
