@@ -27,11 +27,17 @@ DALL·E的整体流程
 然后用dVAE的decoder生成图片，最后通过预训练好的CLIP计算出文本和生成图片的匹配分数，
 采样越多数量的图片，就可以通过CLIP得到不同采样图片的分数排序。
 ```
+- DALL·E中的Transformer结构由64层attention层组成，每层的注意力头数为62，每个注意力头的维度为64，因此，每个token的向量表示维度为62*64=3968。如图所示，attention层使用了行注意力mask、列注意力mask和卷积注意力mask三种稀疏注意力。
 ### VAE基本原理
 在AntoEncoder的基础上给lantent vector添加限制条件，让其服从高斯分布，这样我们通过训练得到的decoder就可以直接使用，将随机生成的一个高斯分布喂给decoder就能生成图片，如上面第一张图所示。
 
 
 
 ## DALL-E2
-分辨率达到1024，是4倍dalle
-基本原理是 CLIP + DDPM
+- 分辨率达到1024，是4倍dalle
+- 基本原理是 CLIP + DDPM
+- DALL-E 2中的先验子模型和图像生成子模型都是基于扩散模型的
+- DALL-E 2使用了一种改进的GLIDE模型，以两种方式使用投影的CLIP文本嵌入(# 未读懂)
+
+
+
