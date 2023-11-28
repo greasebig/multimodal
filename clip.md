@@ -1,7 +1,14 @@
 # CLIP 及其相关
-论文中总结的不足
+- 论文中总结的不足
 ![image](https://github.com/greasebig/multimodal/assets/121388156/85fa96b0-b9c8-4e4c-87b2-fa774557f0a7)
+- CLIP是如何进行预训练的？
+对比学习
+- CLIP是如何做zero-shot的推理的？
+prompt template。比如对于ImageNet的类别，首先把它变成"A photo of a {object}" 这样一个句子
 
+拿图片的特征和1000个文本特征算余弦相似性
+
+- 
 ## 拓展应用：DALL-E 与 DALL-E2
 ```
 基本原理为 VQGAN + CLIP。
