@@ -43,7 +43,9 @@ prompt template。比如对于ImageNet的类别，首先把它变成"A photo of 
 将image encoder选了ResNet和ViT两种结构，text encoder只用了transformer
 ```
   
-  用ResNet-50作为base architecture，然后又对原始版本做了一些改动，利用attention pooling mechanism代替了global average pooling
+  用ResNet-50作为base architecture，然后又对原始版本做了一些改动，利用attention pooling mechanism代替了global average pooling  
+
+  使用的ViT，只做了一点很小的修改，add an additional layer normalization to the combined patch and position embeddings before the transformer 并且使用了一个略微不同的初始化方案
 
 ## 拓展应用：DALL-E 与 DALL-E2
 ```
