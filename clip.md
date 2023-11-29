@@ -8,6 +8,9 @@
 prompt template。比如对于ImageNet的类别，首先把它变成"A photo of a {object}" 这样一个句子
 拿图片的特征和1000个文本特征算余弦相似性
 直接用类别单词去抽取文本特征也可以，但是模型预训练的时候和图片配对的都是句子，推理的时候用单词效果会下降
+
+1.只用一个单词去做prompt，会经常出现歧义性的问题
+2.匹配的文本一般都是一个句子，很少出现一个单词的情况，如果推理的时候，每次进来的是一个单词，可能就存在distribution gap的问题，抽出来的特征可能就不好
 ```
 - 数据集构造方式（未读懂）
 ```
@@ -40,12 +43,26 @@ prompt template。比如对于ImageNet的类别，首先把它变成"A photo of 
 
 - Choosing and Scaling a Model
 ```
-将image encoder选了ResNet和ViT两种结构，text encoder只用了transformer
+image encoder选了ResNet和ViT两种结构，text encoder只用了transformer
 ```
   
   用ResNet-50作为base architecture，然后又对原始版本做了一些改动，利用attention pooling mechanism代替了global average pooling  
+  使用的ViT，只做了一点很小的修改，add an additional layer normalization to the combined patch and position embeddings before the transformer 并且使用了一个略微不同的初始化方案  
 
-  使用的ViT，只做了一点很小的修改，add an additional layer normalization to the combined patch and position embeddings before the transformer 并且使用了一个略微不同的初始化方案
+  Text encoder是一个transformer，使用一个63M-parameter 12-layer 512-wide model with 8 attention heads作为base size  
+  序列长度最大为76
+
+- Training  
+
+  图片这边共训练了8个模型，5个ResNet和3个transformer，5个ResNet包括ResNet-50，ResNet-101，另外三个是根据efficientNet的方式对ResNet-50的宽度、深度、输入大小进行scale，分别对应原始ResNet50 4倍，16倍，64倍的计算量，3个transformer包括ViT-B/32，ViT-B/16 和ViT-L/14。所有的模型都训练了32个epoch，用的adam优化器  
+
+  超参数是基于grid searches，random search和manual tuning来调整的，为了让调参更快，超参搜索的时候是用的Res50，只训练了一个epoch。batch size 32768  
+
+  最大的那个ResNet（RN50x64）在592个V100的GPU上训练了18天，最大的ViT在256个V100 GPU上只花了12天。对预训练好的ViT-L/14，又在这个数据集上fine-tune了一个epoch，用的是更大尺寸（336*336的），这个模型称作ViT-L/14@336px
+
+- Zero-Shot Transfer  
+
+  借助文本训练了一个又大又好的模型之后，就可以借助这个文本作为引导，很灵活的做zero-shot的迁移学习。
 
 ## 拓展应用：DALL-E 与 DALL-E2
 ```
