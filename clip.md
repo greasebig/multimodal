@@ -42,6 +42,8 @@ prompt template。比如对于ImageNet的类别，首先把它变成"A photo of 
 ```
 将image encoder选了ResNet和ViT两种结构，text encoder只用了transformer
 ```
+  
+  用ResNet-50作为base architecture，然后又对原始版本做了一些改动，利用attention pooling mechanism代替了global average pooling
 
 ## 拓展应用：DALL-E 与 DALL-E2
 ```
