@@ -63,7 +63,11 @@ image encoder选了ResNet和ViT两种结构，text encoder只用了transformer
 - Zero-Shot Transfer  
 
   借助文本训练了一个又大又好的模型之后，就可以借助这个文本作为引导，很灵活的做zero-shot的迁移学习。
-
+- prompt ensembling
+  
+  集成多个zero shot classifiers，即prompt ensembling ，作为提高性能的另一种方式。这些分类器是在不同的上下文提示下得到的，比如“A photo of a big {label}" 和”A photo of a small {label}"。
+  ![Alt text](image.png)
+  列出了使用的这80个context prompts.在ImageNet上，共集成了80个不同的context prompts，这比单个的default prompt 提高了3.5%的性能。
 ## 拓展应用：DALL-E 与 DALL-E2
 ```
 基本原理为 VQGAN + CLIP。
