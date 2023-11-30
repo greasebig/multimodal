@@ -16,6 +16,11 @@ prompt template。比如对于ImageNet的类别，首先把它变成"A photo of 
 ```
 400 million的图像文本对，这个数据集称作WIT（WebImage Text）
 ```
+  
+首先使用在英文维基百科中出现了超过 100 次的单词构建了50万个  
+  queries
+每个样本的 text 要至少包含这 50 万个 queries 中的一个  
+每个 query 最多有 2 万个图像-文本对
 - Efficient Pre-Training Method
 ```
 试图预测每张图片所附文本的确切单词（给定一张图片，去预测对应文本，要逐字逐句去预测文本的），这是个困难的任务
@@ -37,7 +42,9 @@ prompt template。比如对于ImageNet的类别，首先把它变成"A photo of 
 
 - 训练
 
-  从头开始训练，文本和图片的encoder都不需要使用预训练的weights，between the representation and the constastive embedding space也没有使用非线性的投射（projection），use only a linear projection to map from each encoder's representation to the multi-modal embedding space. 在之前对比学习的一些文章中提到过，非线性投射层比线性投射层能够带来将近10个点的性能提升，但是在CLIP中，作者发现线性还是非线性关系不大，他们怀疑非线性的投射层是用来适配纯图片的单模态学习的。也不需要做太多的数据增强，唯一用的是随机裁剪（a random square crop from resized images）
+  从头开始训练，文本和图片的encoder都不需要使用预训练的weights，between the representation and the constastive embedding space也没有使用非线性的投射（projection），use only a linear projection to map from each encoder's representation to the multi-modal embedding space. 在之前对比学习的一些文章中提到过，非线性投射层比线性投射层能够带来将近10个点的性能提升，但是在CLIP中，作者发现线性还是非线性关系不大，他们怀疑非线性的投射层是用来适配纯图片的单模态学习的。也不需要做太多的数据增强，唯一用的是随机裁剪（a random square crop from resized images）  
+  
+  简化数据增强：仅使用随机裁剪
 
 
 
@@ -50,7 +57,9 @@ image encoder选了ResNet和ViT两种结构，text encoder只用了transformer
   使用的ViT，只做了一点很小的修改，add an additional layer normalization to the combined patch and position embeddings before the transformer 并且使用了一个略微不同的初始化方案  
 
   Text encoder是一个transformer，使用一个63M-parameter 12-layer 512-wide model with 8 attention heads作为base size  
-  序列长度最大为76
+  序列长度最大为76  
+
+  将 text encoder/image encoder 输出的 feature embedding 再过一层**线性投影**而非线性投影（常见模型如simCLR 是用了非线性投影，但是作者观察不到线性/非线性投影的区别，并认为在自监督表示学习方法中，非线性投影才能与当前图像的细节相适应）
 
 - Training  
 
