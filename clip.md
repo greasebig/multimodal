@@ -43,7 +43,7 @@ prompt template。比如对于ImageNet的类别，首先把它变成"A photo of 
 - 训练
 
   从头开始训练，文本和图片的encoder都不需要使用预训练的weights，between the representation and the constastive embedding space也没有使用非线性的投射（projection），use only a linear projection to map from each encoder's representation to the multi-modal embedding space. 在之前对比学习的一些文章中提到过，非线性投射层比线性投射层能够带来将近10个点的性能提升，但是在CLIP中，作者发现线性还是非线性关系不大，他们怀疑非线性的投射层是用来适配纯图片的单模态学习的。也不需要做太多的数据增强，唯一用的是随机裁剪（a random square crop from resized images）  
-  
+
   简化数据增强：仅使用随机裁剪
 
 
@@ -75,7 +75,7 @@ image encoder选了ResNet和ViT两种结构，text encoder只用了transformer
 - prompt ensembling
   
   集成多个zero shot classifiers，即prompt ensembling ，作为提高性能的另一种方式。这些分类器是在不同的上下文提示下得到的，比如“A photo of a big {label}" 和”A photo of a small {label}"。
-  ![Alt text](image.png)
+  ![Alt text](assets_picture/clip/image.png)
   列出了使用的这80个context prompts.在ImageNet上，共集成了80个不同的context prompts，这比单个的default prompt 提高了3.5%的性能。
 ## 拓展应用：DALL-E 与 DALL-E2
 ```
