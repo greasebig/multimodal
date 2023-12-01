@@ -106,3 +106,96 @@ Softmax：Softmax函数的公式是exp(xi) / Σ(exp(xj))，其中xi是输入向�
   ![Alt text](assets_picture/transformer/image-15.png)
 
 ### Add & Norm
+
+  Add指 X+MultiHeadAttention(X)，是一种残差连接，通常用于解决多层网络训练的问题，可以让网络**只关注当前差异的部分**，在 ResNet 中经常用到  
+  Norm指 Layer Normalization，通常用于 RNN 结构，Layer Normalization 会将每一层神经元的输入都转成均值方差都一样的，这样可以加快收敛。
+### Feed Forward
+  
+  Feed Forward 层比较简单，是一个两层的全连接层，第一层的激活函数为 Relu，第二层不使用激活函数，对应的公式如下  
+  ![Alt text](assets_picture/transformer/image-16.png)  
+  X是输入，Feed Forward 最终得到的输出矩阵的维度与X一致。  
+
+  - 激活函数  
+
+  ![Alt text](assets_picture/transformer/image-17.png)  
+  如果不用激活函数，在这种情况下每一层输出都是上层输入的线性函数。容易验证，无论神经网络有多少层，输出都是输入的线性组合，与没有隐藏层效果相当，这种情况就是最原始的感知机（Perceptron）了。  
+  （不再是输入的线性组合，可以逼近任意函数）。最早的想法是sigmoid函数或者tanh函数，输出有界，很容易充当下一层输入。  
+  
+  引入ReLu的原因
+
+第一，**计算量**。采用sigmoid等函数，算激活函数时（指数运算），计算量大，反向传播求误差梯度时，求导涉及除法，计算量相对大，而采用Relu激活函数，整个过程的计算量节省很多。
+
+第二，***梯度消失**。对于深层网络，sigmoid函数反向传播时，很容易就会出现 梯度消失 的情况（在sigmoid接近**饱和区时，变换太缓慢，导数趋于0**，这种情况会造成信息丢失），从而无法完成深层网络的训练。
+
+第三，**稀疏性**。ReLu会使一部分神经元的输出为0，这样就造成了 网络的稀疏性，并且减少了参数的相互依存关系，缓解了**过拟合**问题的发生。
+
+## Decoder 结构
+
+  与 Encoder block 相似，但是存在一些区别：
+
+- 包含两个 Multi-Head Attention 层。
+- 第一个 Multi-Head Attention 层采用了 Masked 操作。
+- 第二个 Multi-Head Attention 层的**K, V**矩阵使用 Encoder 的**编码信息矩阵C**进行计算，而**Q**使用上一个 **Decoder block 的输出**计算。
+- 最后有一个 Softmax 层计算下一个翻译单词的概率。
+
+###  第一个 Multi-Head Attention
+  
+  首先根据输入 "'<Begin'>" 预测出第一个单词为 "I"，然后根据输入 "'<Begin'> I" 预测下一个单词 "have"。  
+  ![Alt text](assets_picture/transformer/image-19.png)  
+
+  Decoder 可以在训练的过程中使用 Teacher Forcing 并且**并行化训练**，即将正确的单词序列 ('<Begin'> I have a cat) 和对应输出 (I have a cat '<end'>) 传递到 Decoder。  
+  那么在预测第 i 个输出时，就要将第 i+1 之后的单词掩盖住，注意 **Mask 操作是在 Self-Attention 的 Softmax 之前使用**的，下面用 0 1 2 3 4 5 分别表示 "'<Begin'> I have a cat '<end'>"。  
+  ![Alt text](assets_picture/transformer/image-6.png)  
+
+  - 第一步：是 Decoder 的输入矩阵和 Mask 矩阵，输入矩阵包含 "'<Begin'> I have a cat" (0, 1, 2, 3, 4) 五个单词的表示向量，Mask 是一个 5×5 的矩阵。在 Mask 可以发现单词 0 只能使用单词 0 的信息，而单词 1 可以使用单词 0, 1 的信息，即只能使用之前的信息。  
+  ![Alt text](assets_picture/transformer/image-18.png)  
+
+  - 第二步：接下来的操作和之前的 Self-Attention 一样，通过输入矩阵X计算得到Q,K,V矩阵。然后计算Q和 KT
+ 的乘积 
+ 。  
+ ![Alt text](assets_picture/transformer/image-20.png)
+ - 第三步：得到 Mask QKT
+ 之后在 Mask QKT
+上进行 Softmax，每一行的和都为 1。但是单词 0 在单词 1, 2, 3, 4 上的 attention score 都为 0。  
+![Alt text](assets_picture/transformer/image-21.png)  
+- 第四步：使用 Mask QKT
+与矩阵 V相乘，得到输出 Z，则单词 1 的输出向量 Z1
+ 是只包含单词 1 信息的。  
+ ![Alt text](assets_picture/transformer/image-22.png)
+
+- 第五步：通过上述步骤就可以得到一个 Mask Self-Attention 的输出矩阵 
+ ，然后和 Encoder 类似，通过 Multi-Head Attention 拼接多个输出
+ 然后计算得到第一个 Multi-Head Attention 的输出Z，Z与输入X维度一样。
+
+### 第二个 Multi-Head Attention
+  
+  根据 Encoder 的输出 C计算得到 K, V，根据上一个 Decoder block 的输出 Z 计算 Q (如果是第一个 Decoder block 则使用输入矩阵 X 进行计算)  
+  这样做的好处是在 Decoder 的时候，每一位单词都可以利用到 Encoder 所有单词的信息 (这些信息无需 Mask)。??
+
+### Softmax 预测输出单词
+![Alt text](assets_picture/transformer/image-23.png)  
+  Decoder block 最后的部分是利用 Softmax 预测下一个单词，在之前的网络层我们可以得到一个最终的输出 Z，因为 Mask 的存在，使得单词 0 的输出 Z0 只包含单词 0 的信息，如下：  
+  ![Alt text](assets_picture/transformer/image-24.png)  
+  ![Alt text](assets_picture/transformer/image-25.png)  
+  Softmax 根据输出矩阵的每一行预测下一个单词    
+  与 Encoder 一样，Decoder 是由多个 Decoder block 组合而成
+
+## Transformer 总结
+  
+  - Transformer 与 RNN 不同，可以比较好地并行训练。
+- Transformer 本身是不能利用单词的顺序信息的，因此需要在输入中添加位置 Embedding，否则 Transformer 就是一个词袋模型了。
+- Transformer 的重点是 Self-Attention 结构，其中用到的 Q, K, V矩阵通过输出进行线性变换得到。
+- Transformer 中 Multi-Head Attention 中有多个 Self-Attention，可以捕获单词之间多种维度上的相关系数 attention score。  
+![Alt text](assets_picture/transformer/image-23.png)    
+![Alt text](assets_picture/transformer/image-13.png)  
+![Alt text](assets_picture/transformer/image-6.png)  
+
+## 运行逻辑
+  
+  - 训练时：第i个decoder的输入 = encoder输出 + ground truth embeding
+  - 预测时：第i个decoder的输入 = encoder输出 + 第(i-1)个decoder输出
+
+  训练时因为知道ground truth embeding，相当于知道正确答案，网络可以一次训练完成。  
+  
+预测时，首先输入start，输出预测的第一个单词 然后start和新单词组成新的query，再输入decoder来预测下一个单词，循环往复 直至end
+
