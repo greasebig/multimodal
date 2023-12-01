@@ -1,6 +1,7 @@
 # transformer  
   
-  Transformer的知名应用——BERT——无监督的训练的Transformer
+  Transformer的知名应用——BERT——无监督的训练的Transformer  
+  
   ChatGPT, Chat Generative Pre-training Transformer
 ## Transformer 整体结构
   
@@ -73,7 +74,7 @@
  ，1234 表示的是句子中的单词。  
  ![Alt text](assets_picture/transformer/image-9.png)  
  得到之后，使用 Softmax 计算每一个单词对于其他单词的 attention 系数，公式中的 Softmax 是对矩阵的每一行进行 Softmax，即每一行的和都变为 1.   
- 
+
  ![Alt text](assets_picture/transformer/image-10.png)  
 
  （Logit：通常用sigmoid函数表示，例如sigmoid(x) = 1 / (1 + exp(-x))。  
