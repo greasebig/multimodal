@@ -1,7 +1,7 @@
 # transformer  
   
   Transformer的知名应用——BERT——无监督的训练的Transformer  
-  
+
   ChatGPT, Chat Generative Pre-training Transformer
 ## Transformer 整体结构
   
@@ -103,3 +103,6 @@ Softmax：Softmax函数的公式是exp(xi) / Σ(exp(xj))，其中xi是输入向�
  Multi-Head Attention 输出的矩阵Z与其输入的矩阵X的维度是一样的  
 
 ## Encoder 结构
+  ![Alt text](assets_picture/transformer/image-15.png)
+
+### Add & Norm
