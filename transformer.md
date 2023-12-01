@@ -22,7 +22,8 @@
 
   第三步：将 Encoder 输出的编码信息矩阵 C传递到 Decoder 中，Decoder 依次会根据当前翻译过的单词 1~ i 翻译下一个单词 i+1，如下图所示。在使用的过程中，翻译到单词 i+1 的时候需要通过 Mask (掩盖) 操作遮盖住 i+1 之后的单词  
 
-  ![Alt text](assets_picture/transformer/image-3.png)
+  ![Alt text](assets_picture/transformer/image-3.png)  
+
   Decoder 接收了 Encoder 的编码矩阵 C，然后首先输入一个翻译开始符 "<Begin>"，预测第一个单词 "I"；然后输入翻译开始符 "<Begin>" 和单词 "I"，预测单词 "have"，以此类推。
 ## Transformer 的输入
   
@@ -34,7 +35,8 @@
 
   PE 可以通过训练得到，也可以使用某种公式计算得到。在 Transformer 中采用了后者，计算公式如下：  
 
-  ![Alt text](assets_picture/transformer/image-4.png)
+  ![Alt text](assets_picture/transformer/image-4.png)  
+
   其中，pos 表示单词在句子中的位置，d 表示 PE的维度 (与词 Embedding 一样)，2i 表示偶数的维度，2i+1 表示奇数维度 (即 2i≤d, 2i+1≤d)。使用这种公式计算 PE 有以下的好处：
   - 使 PE 能够**适应比训练集里面所有句子更长的句子**，假设训练集里面最长的句子是有 20 个单词，突然来了一个长度为 21 的句子，则使用公式计算的方法可以计算出第 21 位的 Embedding。
   - 可以让模型**容易地计算出相对位置**，对于固定长度的间距 k，PE(pos+k) 可以用 PE(pos) 计算得到。因为 Sin(A+B) = Sin(A)Cos(B) + Cos(A)Sin(B), Cos(A+B) = Cos(A)Cos(B) - Sin(A)Sin(B)。  
@@ -51,8 +53,9 @@
 
 ### Self-Attention 结构  
   
-  
+
   ![Alt text](assets_picture/transformer/image-6.png)  
+
   在计算的时候需要用到矩阵Q(查询),K(键值),V(值)。在实际中，Self-Attention 接收的是输入(单词的表示向量x组成的矩阵X) 或者上一个 Encoder block 的输出。而**Q,K,V正是通过 Self-Attention 的输入进行线性变换得到的**，如下
 
 ### Q, K, V 的计算
@@ -64,11 +67,13 @@
   
   得到矩阵 Q, K, V之后就可以计算出 Self-Attention 的输出了，***计算公式***如下：  
   ![Alt text](assets_picture/transformer/image-8.png)  
+
   公式中计算矩阵Q和K每一行向量的内积  
   Q乘以K的转置后，得到的矩阵行列数都为 n，n 为句子单词数，这个矩阵可以表示单词之间的 attention 强度。下图为Q乘以 
  ，1234 表示的是句子中的单词。  
  ![Alt text](assets_picture/transformer/image-9.png)  
- 得到之后，使用 Softmax 计算每一个单词对于其他单词的 attention 系数，公式中的 Softmax 是对矩阵的每一行进行 Softmax，即每一行的和都变为 1. 
+ 得到之后，使用 Softmax 计算每一个单词对于其他单词的 attention 系数，公式中的 Softmax 是对矩阵的每一行进行 Softmax，即每一行的和都变为 1.   
+ 
  ![Alt text](assets_picture/transformer/image-10.png)  
 
  （Logit：通常用sigmoid函数表示，例如sigmoid(x) = 1 / (1 + exp(-x))。  
