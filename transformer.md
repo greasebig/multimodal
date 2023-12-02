@@ -1,8 +1,14 @@
 # transformer  
   
+  2017  
+  
   Transformer的知名应用——BERT——无监督的训练的Transformer  
 
-  ChatGPT, Chat Generative Pre-training Transformer
+  ChatGPT, Chat Generative Pre-training Transformer  
+
+  ![Alt text](assets_picture/transformer/image-23.png)    
+![Alt text](assets_picture/transformer/image-13.png)  
+![Alt text](assets_picture/transformer/image-6.png) 
 ## Transformer 整体结构
   
   下图是 Transformer 用于中英文翻译的整体结构  
