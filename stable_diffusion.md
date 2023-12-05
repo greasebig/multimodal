@@ -1,6 +1,13 @@
 # Stable Diffusion
 ## 发展脉络  
-  2022 SD V1.5版本  
+
+
+2015年：多伦多大学提出了alignDRAW。这是一个文本到图像模型。该模型只能生成模糊的图像，但展示了通过文本输入生成模型“未见过”的图像的可能性。  
+2016年：Reed、Scott等人提出了使用「生成对抗网络」（GAN，一种神经网络结构）生成图像的方法。他们成功地从详细的文本描述中生成了逼真的鸟类和花卉图像。在这项工作之后，一系列基于GAN的模型被开发出来。  
+2021年：OpenAI发布了基于Transformer架构（另一种神经网络架构）的DALL-E，引起了公众的关注。  
+2022年：Google Brain发布了Imagen，与OpenAI的DALL-E竞争。  
+2022年：稳定扩散Stable Diffusion被宣布为「潜在空间扩散模型」的改进。由于其开源性质，基于它的许多变体和微调模型被创建，并引起了广泛的关注和应用。  
+2023年：出现了许多新的模型和应用，甚至超出了文本到图像的范畴，扩展到文本到视频或文本到3D等领域。  
 
   图像生成领域最常见生成模型有GAN和VAE，2020年，DDPM（Denoising Diffusion Probabilistic Model）被提出，被称为扩散模型（Diffusion Model），同样可用于图像生成。近年扩散模型大热，OpenAI、Google Brain等相继基于扩散模型提出的以文生图，图像生成视频生成等模型。  
 
@@ -29,7 +36,7 @@ LAION-5B
 基于pixel的方法往往限于算力只生成64x64大小的图像，比如OpenAI的DALL-E2和谷歌的Imagen，然后再通过超分辨模型将图像分辨率提升至256x256和1024x1024；而基于latent的SD是在latent空间操作的，它可以直接生成256x256和512x512甚至更高分辨率的图像。
 
 ### 根源diffusion
-
+2015  
 前向过程：可以由x_0通过公式求出最后的x_t 
 ![Alt text](assets_picture/stable_diffusion/image-28.png)  
 
@@ -64,7 +71,14 @@ def cosine_beta_schedule(time_steps, s=0.008):
 每一步？？？   
 时间如何采样？
 
-### VAE
+### 生成模型VAE
+2013  
+VAE的核心就是找到一个容易生成数据x 的z 的分布，即后验分布q ϕ ( z ∣ x ) ，VAE需要用神经网络拟合一个分布p θ ( z ∣ x ) 和q ϕ ( z ∣ x ) 接近。VAE假设每个x i 
+​
+ 服从标准正态分布。
+
+
+#### 损失函数
 变分自编码器（Variational Autoencoder，VAE）的损失函数由两部分组成：重构损失和KL散度（Kullback-Leibler divergence）损失  
 $[ \mathcal{L}_{VAE} = \text{Reconstruction Loss} + \beta \times \text{KL Divergence Loss} ] $  
 权重参数 $(\beta)$ 的选择可以影响模型学到的潜在表示的质量。通常，较小的 $(\beta)$  会使模型更注重学习重构能力，而较大的 $(\beta)$  则会更注重学习潜在变量的结构。
@@ -72,12 +86,22 @@ $[ \mathcal{L}_{VAE} = \text{Reconstruction Loss} + \beta \times \text{KL Diverg
 其中，(N) 是样本数量，(x_i) 是原始输入数据，$(\hat{x}_i)$ 是由解码器生成的重构数据。用于衡量模型的生成能力，即模型能够将输入数据重构回原始数据的程度。在VAE中，通常使用平均二乘误差（Mean Squared Error，MSE）或二分类交叉熵（Binary Crossentropy）作为重构损失。对于VAE的解码器，其任务是将潜在变量重新映射为输入数据。
 - $[ D_{KL}(q(z|x) || p(z)) = \frac{1}{2} \sum_{i=1}{K} (\sigma_i2 + \mu_i2 - \log(\sigma_i2) - 1) ]$  
 其中，(q(z|x)) 是给定输入数据 (x) 后，潜在变量 (z) 的后验分布，(p(z)) 是先验分布，$(\mu)$ 和 $(\sigma)$ 分别是后验分布的均值和标准差。这里的 (K) 是潜在变量的维度。  
+KL散度(Kullback-Leibler Divergence)是用来度量两个概率分布相似度的指标，它作为经典损失函数被广泛地用于聚类分析与参数估计等机器学习任务中。   
+相对熵（relative entropy），又被称为Kullback-Leibler散度（Kullback-Leibler divergence）或信息散度（information divergence），是两个 概率分布 （probability distribution）间差异的非对称性度量 [1] 。 在 信息理论 中，相对熵等价于两个概率分布的 信息熵 （Shannon entropy）的差值 [2] 。 相对熵是一些优化算法，例如 最大期望算法 （Expectation-Maximization algorithm, EM）的损失函数 [3] 。  
+KL散度定义：   
+![Alt text](assets_picture/stable_diffusion/image-35.png)  
+![Alt text](assets_picture/stable_diffusion/image-36.png)  
+
+重参数化  
+![Alt text](assets_picture/stable_diffusion/image-37.png)  
 
 
 
 
 
 ## SD模型的主体结构
+  2022 SD V1.5版本 为例 
+
 autoencoder：encoder将图像压缩到latent空间，而decoder将latent解码为图像；  
 CLIP text encoder：提取输入text的text embeddings，通过cross attention方式送入扩散模型的UNet中作为condition； ？？？   
 UNet：扩散模型的主体，用来实现文本引导下的latent生成。  
@@ -98,7 +122,18 @@ f=H/h为下采样率（downsampling factor）
 ### CLIP text encoder 
 采用目前OpenAI所开源的最大CLIP模型：clip-vit-large-patch14，这个CLIP的text encoder是一个transformer模型（只有encoder模块）：层数为12，特征维度为768  
 对于输入text，送入CLIP text encoder后得到最后的hidden states（即最后一个transformer block得到的特征），其特征维度大小为77x768（77是token的数量），这个细粒度的text embeddings将以cross attention的方式送入UNet中。  
-训练SD的过程中，**CLIP text encoder模型是冻结的**。比如谷歌的Imagen采用纯文本模型T5 encoder来提出文本特征，而SD则采用CLIP text encoder，预训练好的模型往往已经在大规模数据集上进行了训练，它们要比直接采用一个从零训练好的模型要好。  
+训练SD的过程中，**CLIP text encoder模型是冻结的**。比如谷歌的Imagen采用纯文本模型T5 encoder来提出文本特征，而SD则采用CLIP text encoder，预训练好的模型往往已经在大规模数据集上进行了训练，它们要比直接采用一个从零训练好的模型要好。   
+
+文本提示是如何被处理并输入到噪声预测器中的。
+- 首先，分词器将提示中的每个单词转换为一个称为标记（token）的数字。Stable Diffusion模型限制了文本提示中使用的标记token数量为75个。  
+- 然后，每个标记被转换为一个包含768个值的向量，称为嵌入embedding。这些嵌入向量接着被文本转换器处理，并准备好供噪声预测器使用。
+
+![Alt text](assets_picture/stable_diffusion/image-38.png)  
+  
+分词器只能对其在训练期间见过的单词进行分词。例如，CLIP模型中有“dream”和“beach”，但没有“dreambeach”。分词器会将单词“dreambeach”分割为两个标记“dream”和“beach”。因此，一个单词并不总是对应一个标记！  
+另一个需要注意的细节是空格字符也是标记的一部分。在上述情况中，短语“dream beach”产生了两个标记“dream”和“[space]beach”。这些标记与“dreambeach”产生的标记“dream”和“beach”（beach之前没有空格）不同。
+
+分词器怎么手写出来？？？
 
 ### UNet
 其主要结构如下图所示（这里以输入的latent为64x64x4维度为例），其中encoder部分包括3个CrossAttnDownBlock2D模块和1个DownBlock2D模块，而decoder部分包括1个UpBlock2D模块和3个CrossAttnUpBlock2D模块，中间还有一个UNetMidBlock2DCrossAttn模块。encoder和decoder两个部分是完全对应的，中间存在skip connection。注意3个CrossAttnDownBlock2D模块最后均有一个2x的downsample操作，而DownBlock2D模块是不包含下采样的。  
@@ -141,7 +176,23 @@ SD的训练是多阶段的（先在256x256尺寸上预训练，然后在512x512�
 ![Alt text](assets_picture/stable_diffusion/image-7.png)  
 ## SD的主要应用
 包括文生图，图生图以及图像inpainting。其中文生图是SD的基础功能：根据输入文本生成相应的图像，而图生图和图像inpainting是在文生图的基础上延伸出来的两个功能。
-### 文生图
+### 文生图 
+#### 整体流程
+第一步：稳定扩散Stable Diffusion在「潜在空间」中生成一个随机张量Tensor。  
+![Alt text](assets_picture/stable_diffusion/image-41.png)  
+第二步：噪声预测器Noise Predictor 也就是 U-Net 接收潜在噪声图像和文本提示作为输入，并预测出潜在空间中的噪声（一个4x64x64的张量）。  
+![Alt text](assets_picture/stable_diffusion/image-39.png)  
+第三步：从潜在图像中减去潜在噪声。这将成为你的新潜在图像。  
+![Alt text](assets_picture/stable_diffusion/image-40.png)  
+第二步和第三步将「重复进行一定次数的采样步骤」，例如20次。  
+
+噪声调度  
+![Alt text](assets_picture/stable_diffusion/image-42.png)  
+
+
+
+#### 训练细节
+
 SD最后是在512x512尺度上训练的，所以生成512x512尺寸效果是最好的，但是实际上SD可以生成任意尺寸的图片：一方面autoencoder支持任意尺寸的图片的编码和解码，另外一方面扩散模型UNet也是支持任意尺寸的latents生成的（UNet是卷积+attention的混合结构）  
 ![Alt text](assets_picture/stable_diffusion/image-8.png)  
 然而，生成512x512以外的图片会存在一些问题，比如生成低分辨率图像时，图像的质量大幅度下降，下图为同样的文本在256x256尺寸下的生成效果：  
@@ -162,10 +213,27 @@ guidance_scale为1，3，5，7，9和11下生成的图像对比，可以看到�
 来进行clip，这样就可以大大减少过饱和的像素  
 ![Alt text](assets_picture/stable_diffusion/image-14.png)
 
+#### CFG
+
 另外一个比较容易忽略的参数是negative_prompt，这个参数和CFG有关，前面说过，SD采用了CFG来提升生成图像的质量。  
 这里的negative_prompt便是无条件扩散模型的text输入，前面说过训练过程中我们将text置为空字符串来实现无条件扩散模型，所以这里：negative_prompt = None = ""。  
 ![Alt text](assets_picture/stable_diffusion/image-13.png)  
 在原有的prompt基础加上了一些描述词，有时候我们称之为“魔咒”，不同的模型可能会有不同的魔咒。其生成的效果就大大提升
+
+
+
+CFG是无需分类器辅助Classifier-Free Guidance的简称。为了理解CFG是什么，我们需要首先了解它的前身，分类器辅助。
+
+分类器辅助
+分类器辅助是在扩散模型Diffusion model中将「图像标签」纳入考虑的一种方式。你可以使用标签来指导扩散过程。例如，标签“猫”将引导逆向扩散Reverse Diffusion 过程生成猫的照片。
+
+❝分类器辅助尺度是一个参数，用于控制扩散过程应该多大程度上遵循标签。
+❞
+![Alt text](assets_picture/stable_diffusion/image-43.png)  
+分类器指导。左：无引导。中间：小的引导尺度。右图：大引导比例  
+在高分类器辅助下，扩散模型Diffusion model生成的图像会偏向极端或明确的示例。如果你要求模型生成一只猫的图像，它将返回一张明确是猫而不是其他东西的图像。 
+分类器辅助尺度控制着辅助的紧密程度。在上面的图中，右侧的采样比中间的采样具有更高的分类器辅助尺度。在实践中，这个尺度值只是对朝着具有该标签数据的漂移项的乘法因子。  
+（CFG）尺度是一个值，用于控制文本提示对扩散过程的影响程度。当该值设为0时，图像生成是无条件的（即忽略了提示）。较高的值将扩散过程引导向提示的方向。 
 
 文生图这个pipeline的内部流程代码
 ```python
@@ -454,6 +522,10 @@ SD unCLIP是在原来的SD模型的基础上增加了CLIP的image encoder的nosi
 - DreamBooth原本是谷歌提出的应用在Imagen上的个性化生成，但是它实际上也可以扩展到SD上（更新版论文已经增加了SD）。DreamBooth首先为特定的概念寻找一个特定的描述词[V]，这个特定的描述词只要是稀有的就可以，然后与Textual Inversion不同的是DreamBooth**需要finetune UNet**，这里为了防止过拟合，增加了一个**class-specific prior preservation loss**（基于SD生成同class图像加入batch里面训练）来进行正则化。  
 由于finetune了UNet，DreamBooth往往比Textual Inversion要表现的要好，但是DreamBooth的存储成本较高。  
   - DreamBooth和Textual Inversion是最常用的个性化生成方法，但其实除了这两种，还有很多其它的研究工作，比如Adobe提出的Custom Diffusion，相比DreamBooth，它只finetune了UNet的attention模块的KV权重矩阵，同时优化一个新概念的token。
+
+LoRA通过在交叉注意模型中添加一小组额外的「权重」，并仅训练这些额外的权重。  
+Hypernetworks使用一个「辅助网络来预测新的权重」，并利用噪声预测器Noise Predictor中的交叉注意部分插入新的样式。  
+LoRA和Hypernetworks的训练相对较快，因为它们不需要训练整个稳定扩散模型  
 
 ### 风格化finetune模型
 采用特定风格的数据集进行finetune，这使得模型“过拟合”在特定的风格上。  
