@@ -20,17 +20,62 @@ VAE（变分自编码器）也是一种生成模型，但其实现方式不同�
 
 ## 训练数据
 LAION-5B
-## SD模型原理 
-diffusion过程  
-![Alt text](assets_picture/stable_diffusion/image-28.png)  
-前向过程：可以由x_0通过公式求出最后的x_t  
-反向过程：贝叶斯公式求出P(x_t-1|x_t)  
-![Alt text](assets_picture/stable_diffusion/image-29.png)  
 
+
+## SD模型原理 
 常规的扩散模型是基于pixel的生成模型，而Latent Diffusion是基于latent的生成模型  
 它先采用一个autoencoder将图像压缩到latent空间，然后用扩散模型来生成图像的latents，最后送入autoencoder的decoder模块就可以得到生成的图像。  
 ![Alt text](assets_picture/stable_diffusion/image.png)    
 基于pixel的方法往往限于算力只生成64x64大小的图像，比如OpenAI的DALL-E2和谷歌的Imagen，然后再通过超分辨模型将图像分辨率提升至256x256和1024x1024；而基于latent的SD是在latent空间操作的，它可以直接生成256x256和512x512甚至更高分辨率的图像。
+
+### 根源diffusion
+
+前向过程：可以由x_0通过公式求出最后的x_t 
+![Alt text](assets_picture/stable_diffusion/image-28.png)  
+
+其中不同t的$\beta_t$ 是预先定义好的逐渐衰减的，可以是Linear，cosine等，满足β 1 < β 2 < . . . < β T   
+ 生成代码如下：
+ ```python
+ def linear_beta_schedule(timesteps):
+    scale = 1000 / timesteps
+    beta_start = scale * 0.0001
+    beta_end = scale * 0.02
+    return np.linspace(beta_start, beta_end, timesteps).astype(np.float32)
+def cosine_beta_schedule(time_steps, s=0.008):
+    """
+    cosine schedule
+    as proposed in https://openreview.net/forum?id=-NEXDKk8gZ
+    """
+    steps = time_steps + 1
+    x = np.linspace(0, time_steps, steps).astype(np.float32)
+    alphas_cumprod = np.cos(((x / time_steps) + s) / (1 + s) * math.pi * 0.5) ** 2
+    alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+    betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+    return np.clip(betas, 0, 0.999)
+
+ ```
+
+
+反向过程：贝叶斯公式求出P(x_t-1|x_t)  
+![Alt text](assets_picture/stable_diffusion/image-29.png)  
+
+如何设计网络，网络哪些部分对应着预测想要的参数？？？  
+如何实现前向和反向过程？？？  
+每一步？？？   
+时间如何采样？
+
+### VAE
+变分自编码器（Variational Autoencoder，VAE）的损失函数由两部分组成：重构损失和KL散度（Kullback-Leibler divergence）损失  
+$[ \mathcal{L}_{VAE} = \text{Reconstruction Loss} + \beta \times \text{KL Divergence Loss} ] $  
+权重参数 $(\beta)$ 的选择可以影响模型学到的潜在表示的质量。通常，较小的 $(\beta)$  会使模型更注重学习重构能力，而较大的 $(\beta)$  则会更注重学习潜在变量的结构。
+- $[ \text{Reconstruction Loss} = \frac{1}{2} \sum_{i=1}{N} |x_i - \hat{x}_i|2 ]$  
+其中，(N) 是样本数量，(x_i) 是原始输入数据，$(\hat{x}_i)$ 是由解码器生成的重构数据。用于衡量模型的生成能力，即模型能够将输入数据重构回原始数据的程度。在VAE中，通常使用平均二乘误差（Mean Squared Error，MSE）或二分类交叉熵（Binary Crossentropy）作为重构损失。对于VAE的解码器，其任务是将潜在变量重新映射为输入数据。
+- $[ D_{KL}(q(z|x) || p(z)) = \frac{1}{2} \sum_{i=1}{K} (\sigma_i2 + \mu_i2 - \log(\sigma_i2) - 1) ]$  
+其中，(q(z|x)) 是给定输入数据 (x) 后，潜在变量 (z) 的后验分布，(p(z)) 是先验分布，$(\mu)$ 和 $(\sigma)$ 分别是后验分布的均值和标准差。这里的 (K) 是潜在变量的维度。  
+
+
+
+
 
 ## SD模型的主体结构
 autoencoder：encoder将图像压缩到latent空间，而decoder将latent解码为图像；  
@@ -492,9 +537,143 @@ SDXL在训练过程中，可以将两种条件注入（size and crop conditionin
 SDXL首先采用基于上述的两种条件注入方案在256x256尺寸上训练600000步（batch size = 2048），然后采用512x512尺寸继续训练200000步，这相当于采样了约16亿的样本。SDXL并没有止步在512x512尺寸，这只是SDXL的预训练，SDXL的最后一步训练是在1024x1024尺寸上采用多尺度方案来进行微调。  
 对于图像裁剪造成的问题，其实另外一个解决方案就是采用多尺度训练，很早NovelAI就发现了这个问题，并提出了基于分组的多尺度训练策略（见博客NovelAI Improvements on Stable Diffusion和NovelAI Aspect Ratio Bucketing Source Code Release (MIT Licensed)，就是说先将训练数据集按照不同的长宽比（aspect ratio）进行分组（groups或者buckets），在训练过程中，我们随机选择一个bucket并从中采样一个batch数据进行训练。将数据集进行分组可以避免过量的裁剪图像，从而减弱对模型的不利影响，并且让模型学习到了多尺度生成。但是分组的方案就需要提前对数据集进行处理，这对于大规模训练是比较麻烦的，所以SDXL选择了先采用固定尺寸预训练，然后最后再进行多尺度微调。
 - 现有图像生成模型的一个常见问题是它们很容易生成具有不自然裁剪的图像。这是因为这些模型经过训练可以生成方形图像。然而，大多数照片和艺术品都不是方形的。然而，该模型只能同时处理相同大小的图像，并且在训练过程中，通常的做法是同时处理多个训练样本以优化所用 GPU 的效率。作为折衷方案，选择方形图像，并且在训练过程中，仅裁剪出每个图像的中心  
-![Alt text](assets_picture/stable_diffusion/image-27.png)
+![Alt text](assets_picture/stable_diffusion/image-27.png)  
+using random crops instead of center crops only slightly improves these issues.  
+
+### 多尺度微调
+这里的多尺度训练策略是借鉴NovelAI所提出的方案，将数据集中图像按照不同的长宽比划分到不同的buckets上（按照最近邻原则），SDXL所设置的buckets如下表所示，虽然不同的bucket的aspect ratio不同，但是像素总大小都接近1024x1024，相邻的bucket其height或者width相差64个pixels。  
+![Alt text](assets_picture/stable_diffusion/image-30.png)  
+在训练过程中，每个step可以在不同的buckets之间切换，每个batch的数据都是从相同的bucket中采样得到。  
+在多尺度训练中，SDXL也将bucket size即target size作为条件加入UNet中，这个条件注入方式和之前图像原始尺寸条件注入一样。将target size作为条件，其实是让模型能够显示地学习到多尺度（或aspect ratio）。
+
+另外一个比较细节的地方是SDXL在多尺度微调阶段采用了offset-noise，这个技术主要是为了解决SD只能生成中等亮度的图像，而无法生成纯黑或者纯白的图像。比如当我们的prompt为"A bald eagle against a white background"，使用SD 2.1生成的图像如下所示，生成的秃头鹰虽然没问题，但是背景并不是白色的：  
+之所以会出现这个问题，是因为训练和测试过程的不一样，SD所使用的noise scheduler其实在最后一步并没有将图像完全变成随机噪音，这使得训练过程中学习是有偏的，但是测试过程中，我们是从一个随机噪音开始生成的，这种不一致就会出现一定的问题。offset-noise是一个解决这个问题的简单方法，你只需要在训练过程中给采用的噪音加上一定的offset即可  
+这里的noise_offset是一个超参数，默认是采用0.1，SDXL采用的是0.05。由于采用offset-noise策略，SDXL就可以生成背景接近为白色的图像  
+对于这个问题，还有其它的解决方案，比如：
+Input Perturbation Reduces Exposure Bias in Diffusion Models  
+Common Diffusion Noise Schedules and Sample Steps are Flawed
 
 
+这里我们简单总结一下，SDXL总共增加了4个额外的条件注入到UNet，它们分别是pooled text embedding，original size，crop top-left coord和target size。对于后面三个条件，它们可以像timestep一样采用傅立叶编码得到特征，然后我们这些特征和pooled text embedding拼接在一起，最终得到维度为2816（1280+25623）的特征。我们将这个特征采用两个线性层映射到和time embedding一样的维度，然后加在time embedding上即可,具体的实现代码如下所示：????  
+```python
+import math
+from einops import rearrange
+import torch
 
+batch_size =16
+# channel dimension of pooled output of text encoder (s)
+pooled_dim = 1280
+adm_in_channels = 2816
+time_embed_dim = 1280
+
+def fourier_embedding(inputs, outdim=256, max_period=10000):
+    """
+    Classical sinusoidal timestep embedding
+    as commonly used in diffusion models
+    : param inputs : batch of integer scalars shape [b ,]
+    : param outdim : embedding dimension
+    : param max_period : max freq added
+    : return : batch of embeddings of shape [b, outdim ]
+    """
+    half = outdim // 2
+    freqs = torch.exp(
+        -math.log(max_period)
+            * torch.arange(start=0, end=half, dtype=torch.float32)
+            / half
+    ).to(device=inputs.device)
+    args = timesteps[:, None].float() * freqs[None]
+    embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
+    if dim % 2:
+        embedding = torch.cat(
+            [embedding, torch.zeros_like(embedding[:, :1])], dim=-1
+        )
+    return embedding
+
+
+def cat_along_channel_dim(x: torch.Tensor,) -> torch.Tensor:
+    if x.ndim == 1:
+        x = x[... , None]
+ assert x . ndim == 2
+ b, d_in = x.shape
+    x = rearrange(x, "b din -> (b din)")
+    # fourier fn adds additional dimension
+    emb = fourier_embedding(x)
+    d_f = emb.shape[-1]
+    emb = rearrange(emb, "(b din) df -> b (din df)",
+                     b=b, din=d_in, df=d_f)
+ return emb
+
+
+def concat_embeddings(
+    # batch of size and crop conditioning cf. Sec. 3.2
+    c_size: torch.Tensor,
+    c_crop: torch.Tensor,
+    # batch of target size conditioning cf. Sec. 3.3
+    c_tgt_size: torch.Tensor ,
+    # final output of text encoders after pooling cf. Sec . 3.1
+    c_pooled_txt: torch.Tensor,
+) -> torch.Tensor:
+    # fourier feature for size conditioning
+    c_size_emb = cat_along_channel_dim(c_size)
+ # fourier feature for size conditioning
+ c_crop_emb = cat_along_channel_dim(c_crop)
+ # fourier feature for size conditioning
+ c_tgt_size_emb = cat_along_channel_dim(c_tgt_size)
+ return torch.cat([c_pooled_txt, c_size_emb, c_crop_emb, c_tgt_size_emd], dim=1)
+
+# the concatenated output is mapped to the same
+# channel dimension than the noise level conditioning
+# and added to that conditioning before being fed to the unet
+adm_proj = torch.nn.Sequential(
+    torch.nn.Linear(adm_in_channels, time_embed_dim),
+    torch.nn.SiLU(),
+    torch.nn.Linear(time_embed_dim, time_embed_dim)
+)
+
+# simulating c_size and c_crop as in Sec. 3.2
+c_size = torch.zeros((batch_size, 2)).long()
+c_crop = torch.zeros((batch_size, 2)).long ()
+# simulating c_tgt_size and pooled text encoder output as in Sec. 3.3
+c_tgt_size = torch.zeros((batch_size, 2)).long()
+c_pooled = torch.zeros((batch_size, pooled_dim)).long()
+ 
+# get concatenated embedding
+c_concat = concat_embeddings(c_size, c_crop, c_tgt_size, c_pooled)
+# mapped to the same channel dimension with time_emb
+adm_emb = adm_proj(c_concat)
+```
+???
+
+### 细化模型
+![Alt text](assets_picture/stable_diffusion/image-31.png)  
+这里第一个模型我们称为base model，上述我们讲的其实就是SDXL-base model，第二个模型是refiner model，它是进一步在base model生成的图像基础上提升图像的细节。refiner model是和base model采用同样VAE的一个latent diffusion model，但是它只在使用较低的noise level进行训练（只在前200 timesteps上）  
+在推理时，我们只使用refiner model的图生图能力。对于一个prompt，我们首先用base model生成latent，然后我们给这个latent加一定的噪音（采用扩散过程），并使用refiner model进行去噪。经过这样一个重新加噪再去噪的过程，图像的局部细节会有一定的提升  
+
+级联refiner model其实相当于一种模型集成，这种集成策略也早已经应用在文生图中，比如NVIDA在eDiff-I: Text-to-Image Diffusion Models with an Ensemble of Expert Denoisers就提出了集成不同的扩散模型来提升生成质量。另外采用SD的图生图来提升质量其实也早已经被应用了，比如社区工具Stable Diffusion web UI的high res fix就是基于图生图来实现的（结合超分模型）。  
+
+refiner model和base model在结构上有一定的不同，其UNet的结构如下图所示，refiner model采用4个stage，第一个stage也是采用没有attention的DownBlock2D，网络的特征维度采用384，而base model是320。另外，refiner model的attention模块中transformer block数量均设置为4。refiner model的参数量为2.3B，略小于base model。  
+![Alt text](assets_picture/stable_diffusion/image-32.png)  
+
+另外refiner model的text encoder只使用了OpenCLIP ViT-bigG，也是提取倒数第二层特征以及pooled text embed。与base model一样，refiner model也使用了size and crop conditioning，除此之外还增加了图像的艺术评分aesthetic-score作为条件，处理方式和之前一样。refiner model应该没有采用多尺度微调，所以没有引入target size作为条件（refiner model只是用来图生图，它可以直接适应各种尺度）。
+
+### 模型评测
+对于文生图模型的评测，首先会计算COCO数据集上FID和CLIP score，SDXL其它版本SD的对比如下所示：  
+![Alt text](assets_picture/stable_diffusion/image-33.png)  
+从CLIP score来看，SDXL采用了更强的text encoder，其CLIP score是最高的，但是从FID来看，SD 1.5是最低的，而SDXL反而是最高的，我们直接FID往往并不能很好地衡量图像的生成质量，所以这里又进一步采用人工评价（同样的prompt让不同模型生成图像来人工选择最好的），对比结果如下所示：  
+还进一步和目前比较好的模型Midjourney v5.1进行对比，这里是基于PartiPrompts来进行对比的，PartiPrompts是谷歌在Parti这个工作中所提出的文生图测试prompts，它包含不同的类别比如动物和人等，这里是每个类别随机选择5个prompts分别使用SDXL和Midjourney v5.1生成图像，并人来进行选择  
+和LLM模型一样，文生图模型也同样面临难客观评价的问题
+
+### 模型局限
+模型还是比较难以生成好比较复杂的结构，这里的一个典型例子是人手，模型往往不能生成正确的结构（出现多指和少指甚至错乱的情况）  
+然后模型生成的图像还是无法达到完美的逼真度，在一些细节上比如灯光或纹理可能无法偏离真实。还有一个比较大的缺陷是当生成的图像包含多个实体时，往往会出现属性混淆，比如下图中最左下角的图像，苹果和背包的颜色出现了互换（当然本身这个例子比较难，黑色的苹果不常见），而且其它图像中的背包颜色也是混淆进了黑色  
+![Alt text](assets_picture/stable_diffusion/image-34.png)  
+除了属性混淆，其实也会出现属性渗透或者溢出，比如下图中的头发颜色渗透到了眼睛,车子的颜色也影响了旁边楼宇的颜色
+
+不过，上述缺陷几乎是目前所有的文生图都面临的问题，这也说明文生图模型还有一段很长的路要走。 Stability AI也给出了他们觉得未来可以改进的方面：
+- Single stage：级联模型虽然能够提升图像质量，但是需要更大的计算资源，而且还增加了用时，所以单模型还是需要的；
+- Text synthesis：使用更好的text encoder来提升模型的文本理解能力；
+- Architecture：使用纯transformer模型，比如DiT，但是他们的初步尝试是没有太大的提升；
+- Distillation：蒸馏模型减少采样步数；
+- Diffusion model：采用更好的扩散架构，比如基于连续时间的EDM框架
 
 ## SDXL-turbo or SDXL in 4 steps with Latent Consistency LoRAs(LCM)
