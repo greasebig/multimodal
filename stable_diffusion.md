@@ -234,6 +234,29 @@ SD的训练是多阶段的（先在256x256尺寸上预训练，然后在512x512�
 对于文生图模型，目前常采用的定量指标是FID（Fréchet inception distance）和CLIP score，其中FID可以衡量生成图像的逼真度（image fidelity），而CLIP score评测的是生成的图像与输入文本的一致性，其中FID越低越好，而CLIP score是越大越好。??如何计算  
 当gudiance scale=3时，FID最低；而当gudiance scale越大时，CLIP score越大，但是FID同时也变大。在实际应用时，往往会采用较大的gudiance scale，比如SD模型默认采用7.5，此时生成的图像和文本有较好的一致性。  
 ![Alt text](assets_picture/stable_diffusion/image-7.png)  
+
+### FID 
+(Fréchet Inception Distance)   
+计算Frechet distance between 2 Gaussians (训练好的图片分类的模型的CNN去除 真实和生成的respresentations，计算距离)  
+需要大量样本一次性计算  
+![Alt text](assets_picture/stable_diffusion/image-49.png)  
+- 从真实图像和生成图像中分别抽取n个随机子样本，并通过Inception-v3网络获得它们的特征向量。
+- 计算真实图像子样本的特征向量的平均值mu1和协方差矩阵sigma1，以及生成图像子样本的特征向量的平均值mu2和协方差矩阵sigma2。
+- 计算mu1和mu2之间的欧几里德距离d^2，以及sigma1和sigma2的平方根的Frobenius范数||sigma1^(1/2)*sigma2^(1/2)||_F。
+  - 欧几里德距离 d = sqrt((x1-x2)^+(y1-y2)^)
+  - Frobenius norm（弗罗贝尼乌斯-范数）（F-范数）  
+  ![Alt text](assets_picture/stable_diffusion/image-51.png)  
+  ![Alt text](assets_picture/stable_diffusion/image-50.png)    
+  这个范数是针对矩阵而言的，具体定义可以类比 向量的L2范数
+- 计算FID距离：FID = d^2 + ||sigma1^(1/2)*sigma2^(1/2)||_F。  
+
+
+### CLIP score
+用于评估 text2img 或者 img2img，模型生成的图像与原文本（prompt text）或者原图关联度大小的指标    
+经过CLIP之后的文本表示和图片表示之间的Cosine Distance  
+ 
+夹角余弦取值范围为[-1,1]。余弦越大表示两个向量的夹角越小，余弦越小表示两向量的夹角越大。当两个向量的方向重合时余弦取最大值1，当两个向量的方向完全相反余弦取最小值-1。
+
 ## SD的主要应用
 包括文生图，图生图以及图像inpainting。其中文生图是SD的基础功能：根据输入文本生成相应的图像，而图生图和图像inpainting是在文生图的基础上延伸出来的两个功能。
 ### 文生图 
