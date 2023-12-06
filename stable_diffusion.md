@@ -140,7 +140,10 @@ KL散度损失的引入有助于塑造潜在表示空间的结构，使其更加
 
 
 ## SD模型的主体结构
-  2022 SD V1.5版本 为例 
+2022 SD V1.5版本 为例   
+利用编码器对图片进行压缩，然后在潜在表示空间上做diffusion操作，最后我们再用解码器恢复到原始像素空间即可，论文将这个方法称之为感知压缩（Perceptual Compression）。  
+感知压缩本质上是一个tradeoff，非感知压缩的扩散模型由于在像素空间上训练模型，让文图生成等任务能够在消费级GPU上，在10秒级别时间生成图片，大大降低了落地门槛。  
+
 
 autoencoder：encoder将图像压缩到latent空间，而decoder将latent解码为图像；  
 CLIP text encoder：提取输入text的text embeddings，通过cross attention方式送入扩散模型的UNet中作为condition； ？？？   
@@ -153,9 +156,25 @@ autoencoder是一个基于encoder-decoder架构的图像压缩模型，对于一
 的latent  
 f=H/h为下采样率（downsampling factor）    
 除了采用L1重建损失外，还增加了感知损失（perceptual loss，即LPIPS，具体见论文The Unreasonable Effectiveness of Deep Features as a Perceptual Metric）以及基于patch的对抗训练 ??  
-同时为了防止得到的latent的标准差过大，采用了两种正则化方法：第一种是KL-reg，类似VAE增加一个latent和标准正态分布的KL loss，不过这里为了保证重建效果，采用比较小的权重（～10e-6）；第二种是VQ-reg，引入一个VQ （vector quantization）layer，  
+同时为了防止得到的latent的标准差过大，采用了两种正则化方法：第一种是KL-reg，类似VAE增加一个latent和标准正态分布的KL loss，不过这里为了保证重建效果，采用比较小的权重（～10e-6）；第二种是VQ-reg，引入一个VQ （vector quantization）layer，  不过VQ层是在decoder模块中，这里VQ的codebook采样较高的维度（8192）来降低正则化对重建效果的影响  
+因此在官方发布的一阶段预训练模型中，会看到KL和VQ两种实现。在Stable Diffusion中主要采用AutoencoderKL这种实现。   
 
-这种有损压缩肯定是对SD的生成图像质量是有一定影响的，不过好在SD模型基本上是在512x512以上分辨率下使用的。为了改善这种畸变，stabilityai在发布SD 2.0时同时发布了两个在LAION子数据集上精调的autoencoder，注意这里只精调autoencoder的decoder部分，SD的UNet在训练过程只需要encoder部分，所以这样精调后的autoencoder可以直接用在先前训练好的UNet上（这种技巧还是比较通用的，比如谷歌的Parti也是在训练好后自回归生成模型后，扩大并精调ViT-VQGAN的decoder模块来提升生成质量）  
+具体来说，给定图像 x (H W 3)
+ ，先利用一个编码器 E
+来将图像编码到潜在表示空间 z=E(x) 
+，其中 z (h w c)
+，然后用解码器从潜在表示空间重建图片 x_= D(E(x))
+ 。在感知压缩压缩的过程中，下采样因子的大小为2的次方，
+
+
+这种有损压缩肯定是对SD的生成图像质量是有一定影响的，不过好在SD模型基本上是在512x512以上分辨率下使用的。为了改善这种畸变，stabilityai在发布SD 2.0时同时发布了两个在LAION子数据集上精调的autoencoder，注意这里只精调autoencoder的decoder部分，SD的UNet在训练过程只需要encoder部分，所以这样精调后的autoencoder可以直接用在先前训练好的UNet上（这种技巧还是比较通用的，比如谷歌的Parti也是在训练好后自回归生成模型后，扩大并精调ViT-VQGAN的decoder模块来提升生成质量） 
+
+总而言之，在训练Autoencoder过程中包含如下几个损失：
+
+- 重建损失（Reconstruction Loss）：是重建图像与原始图像在像素空间上的均方误差
+- 感知损失（Perceptual Loss）：是最小化重构图像和原始图像分别在预训练的VGG网络上提取的特征在像素空间上的均方误差；可参考感知损失（perceptual loss）详解
+- 对抗损失（Adversarial Loss）：使用Patch-GAN的判别器来进行对抗训练， 可参考PatchGAN原理
+- 正则项（KL divergence Loss）：通过增加正则项来使得latent的方差较小且是以0为均值，即计算latent和标准正态分布的KL损失
 
 
 
@@ -187,6 +206,7 @@ SD和DDPM一样采用预测noise的方法来训练UNet，其训练损失也和DD
 ![Alt text](assets_picture/stable_diffusion/image-4.png)  
 这里的c 为text embeddings，此时的模型是一个条件扩散模型。  
 
+将AutoEncoder的编码器输出的latent加噪后作为Unet的输入（同时还有其他条件输入），来预测噪声， 损失函数就是真实噪声和预测噪声的L1或L2损失。  
 在训练条件扩散模型时，往往会采用Classifier-Free Guidance（这里简称为CFG），所谓的CFG简单来说就是在训练条件扩散模型的同时也训练一个无条件的扩散模型，同时在采样阶段将条件控制下预测的噪音和无条件下的预测噪音组合在一起来确定最终的噪音，具体的计算公式如下所示：  
 ![Alt text](assets_picture/stable_diffusion/image-6.png)  
 这里的w
@@ -575,6 +595,20 @@ dreamlike-art/dreamlike-diffusion-1.0：艺术风格图像
 prompthero/openjourney：mdjrny-v4风格图像  
 目前finetune SD模型的方法主要有两种：一种是直接finetune了UNet，但是容易过拟合，而且存储成本；另外一种低成本的方法是基于微软的LoRA，LoRA本来是用于finetune语言模型的，但是现在已经可以用来finetune SD模型了，具体可以见博客Using LoRA for Efficient Stable Diffusion Fine-Tuning。  
 
+
+
+
+#### LoRA
+采用的方式是向原有的模型中插入新的数据处理层，这样就避免了去修改原有的模型参数，从而避免将整个模型进行拷贝的情况，同时其也优化了插入层的参数量，最终实现了一种很轻量化的模型调校方法。  
+和上文提到的Hypernetwork相同，LoRA在稳定扩散模型里也将注意打在了crossattention（注意力交叉）所在模块，LoRA将会将自己的权重添加到注意力交叉层的权重中，以此来实现微调。   
+添加权重是以矩阵的形式，如果这样做，LoRA势必需要存储同样大小的参数，那么LoRA又有了个好点子，直接以矩阵相乘的形式存储，最终文件大小就会小很多了，训练时需要的显存也少了。  
+![Alt text](assets_picture/stable_diffusion/image-44.png)   
+效果弱于DreamBooth，主流的训练方式的网络结构目前在尽量追求DreamBooth的效果，但是具体效果是很多因素影响的。   
+控制力弱（虽然即插即拔，但是LoRA训练方法混乱，训练成品良莠不齐，很难有效把控）  
+
+
+
+
 ### 图像编辑
 使用SD来实现对图片的局部编辑。这里列举两个比较好的工作：谷歌的prompt-to-prompt和加州伯克利的instruct-pix2pix。
 - 谷歌的prompt-to-prompt的核心是基于UNet的cross attention maps来实现对图像的编辑，它的好处是不需要finetune模型，但是主要用在编辑用SD生成的图像。  
@@ -588,6 +622,25 @@ prompthero/openjourney：mdjrny-v4风格图像
 ![Alt text](assets_picture/stable_diffusion/image-23.png)  
 其实在ControlNet之前，也有一些可控生成的工作，比如stable-diffusion-2-depth也属于可控生成，但是都没有太火。我觉得ControlNet之所以火，是因为这个工作直接实现了各种各种的可控生成，而且训练的ControlNet可以迁移到其它基于SD finetune的模型上（见Transfer Control to Other SD1.X Models）：  
 与ControlNet同期的工作还有腾讯的T2I-Adapter以及阿里的composer-page：
+
+#### ControlNet 
+通过添加额外条件来控制扩散模型。  
+![Alt text](assets_picture/stable_diffusion/image-45.png)   
+“c”是我们要添加到神经网络中的一个额外条件。zero convolution”是一个1×1卷积层，权重和偏差都初始化为零。
+ControlNet将神经网络权重复制到一个锁定（locked）副本和一个可训练（trainable）副本。  可训练副本将会学习新加入的条件，而锁定副本将会保留原有的模型，得益于此在进行小数据集训练时不会破坏原有的扩散模型。
+
+stable diffusion的U-Net结构如下图所示，包含12个编码器块（Encoder Block），12个解码器块(Decoder Block)，还有一个中间块（Middle），完整模型包括25个块，其中有17个块是主块。文本使用clip进行编码，时间步长采用位置编码。   
+![Alt text](assets_picture/stable_diffusion/image-46.png)   
+我们将上图的简单结构附加在stable diffusion 原来的U-Net结构上14次（相当于复制了一次编码器块和中间块，然后改造成ControlNet结构），就完整地对原有的结构进行了控制（影响），原有的stable diffusion 就化身为了 stable diffusion + controlnet   
+SD-T就可以继续尝试用特定数据集来训练学习新东西来试图完成我们想要模型完成的新任务，比如边缘检测，比如人体姿势探测 
+
+- ControlNet通过获取额外的输入图像并使用Canny边缘检测器（Canny edge detector）来获取轮廓图，这一过程被称为预处理
+- 轮廓图（自然是会被处理到隐空间去）将会作为额外的条件（conditioning）和文本提示被送入SD-T
+- 由于SD-T进行扩散时参考了我们多出来的条件，所以最终出现的图会具有我们预处理时的特征   
+![Alt text](assets_picture/stable_diffusion/image-47.png)  
+
+T2I-Adapter原理和ControlNet相似，都是为了给稳定扩散添加额外的输入条件 
+
 
 ## SDXL
 
