@@ -2,11 +2,15 @@
 ## 发展脉络  
 
 
-2015年：多伦多大学提出了alignDRAW。这是一个文本到图像模型。该模型只能生成模糊的图像，但展示了通过文本输入生成模型“未见过”的图像的可能性。  
+2015年：多伦多大学提出了alignDRAW。这是一个文本到图像模型。该模型只能生成模糊的图像，但展示了通过文本输入生成模型“未见过”的图像的可能性。    
+DM模型  
+
 2016年：Reed、Scott等人提出了使用「生成对抗网络」（GAN，一种神经网络结构）生成图像的方法。他们成功地从详细的文本描述中生成了逼真的鸟类和花卉图像。在这项工作之后，一系列基于GAN的模型被开发出来。  
+2020： DDPM  
 2021年：OpenAI发布了基于Transformer架构（另一种神经网络架构）的DALL-E，引起了公众的关注。  
 2022年：Google Brain发布了Imagen，与OpenAI的DALL-E竞争。  
-2022年：稳定扩散Stable Diffusion被宣布为「潜在空间扩散模型」的改进。由于其开源性质，基于它的许多变体和微调模型被创建，并引起了广泛的关注和应用。  
+2022年：LDM。  
+稳定扩散Stable Diffusion被宣布为「潜在空间扩散模型」的改进。由于其开源性质，基于它的许多变体和微调模型被创建，并引起了广泛的关注和应用。  
 2023年：出现了许多新的模型和应用，甚至超出了文本到图像的范畴，扩展到文本到视频或文本到3D等领域。  
 
   图像生成领域最常见生成模型有GAN和VAE，2020年，DDPM（Denoising Diffusion Probabilistic Model）被提出，被称为扩散模型（Diffusion Model），同样可用于图像生成。近年扩散模型大热，OpenAI、Google Brain等相继基于扩散模型提出的以文生图，图像生成视频生成等模型。  
@@ -77,6 +81,11 @@ VAE的核心就是找到一个容易生成数据x 的z 的分布，即后验分�
 ​
  服从标准正态分布。
 
+待拟合分布是多个高斯分布的组合  
+变分，即引入简化的参数化分布（Gaussian distribution 高斯分布或称正太分布）去拟合复杂后验分布。过程就是要调整变分分布的参数，  
+
+变分下界ELOB：变分分布和后验分布的差值  
+![Alt text](assets_picture/stable_diffusion/image-80.png)  
 
 #### 损失函数
 变分自编码器（Variational Autoencoder，VAE）的损失函数由两部分组成：重构损失和KL散度（Kullback-Leibler divergence）损失  
@@ -212,6 +221,221 @@ SD和DDPM一样采用预测noise的方法来训练UNet，其训练损失也和DD
 这里的w
 为guidance scale，当w
 越大时，condition起的作用越大，即生成的图像其更和输入文本一致。CFG的具体实现非常简单，在训练过程中，我们只需要以一定的概率（比如10%）随机drop掉text即可，
+
+### 采样器 
+在AUTOMATIC1111中提供了许多采样方法,如欧拉a采样、Heun采样、DDIM采样等。采样器是什么?它们是如何工作的?这些采样方法有什么区别?应该使用哪一种采样器?  
+
+什么是采样？  
+首先在潜在空间中生成一张完全随机的图片。然后噪声预测器估计图片的噪声。将预测的噪声从图片中减去  
+这个去噪过程称为采样,因为Stable Diffusion 在每一步中生成一张新的样本图片。采样中使用的方法称为采样器或采样方法。  
+采样器决定了如何进行随机采样,不同的采样器会对结果产生影响。    
+虽然框架是相同的,但进行这个去噪过程的方法有很多种。这通常是在速度和准确性之间的权衡。
+
+#### 噪声调度计划
+在每一步,采样器的作用是生成符合噪声调度计划的指定噪声水平的图片。  
+噪声调度计划控制着每一采样步骤的噪声水平。在第一步,噪声水平最高,然后逐步降低,在最后一步时降为零。  
+
+增加采样步数的效果是什么?  
+每步噪声减小的程度更小。这有助于减少采样的截断误差。  
+　　通俗来说,采样步数越多,每次减少的噪声就越少。这样可以让图像的变化更平滑自然,避免在减噪过程中出现明显的错误。  
+![Alt text](assets_picture/stable_diffusion/image-55.png)  
+![Alt text](assets_picture/stable_diffusion/image-56.png) 
+
+#### 采样器概述
+![Alt text](assets_picture/stable_diffusion/image-57.png)   
+##### 老式 ODE 求解器（Old-School ODE solvers）
+经典的常微分方程（ODE）求解方法   
+ODE是微分方程的英文缩写。求解器是用来求解方程的算法或程序。老派ODE求解器指的是一些传统的、历史较久的用于求解常微分方程数值解的算法。  
+　　相比新方法,这些老派ODE求解器的特点包括:
+- 算法相对简单,计算量小
+- 求解精度一般
+- 对初始条件敏感
+- 易出现数值不稳定
+这些老派算法在计算机算力有限的时代较为通用,但随着新方法的出现,已逐渐被淘汰。但是一些简单任务中,老派算法由于高效并且容易实现,仍有其应用价值。
+　　让我们先简单地说说，以下列表中的一些采样器是100多年前发明的。它们是老式 ODE 求解器。
+
+- Euler - 最简单的求解器。20-30步就能生成效果不错的图片。
+- Heun - 比欧拉法更精确但速度更慢的版本。欧拉的一个更准确但是较慢的版本。抛物线拟合的欧拉方法。
+- LMS(线性多步法) - 速度与Euler相同但(理论上)更精确。
+
+##### 初始采样器（祖先采样器 Ancestral samplers ）
+您是否注意到某些采样器的名称只有一个字母“a”？
+
+- Euler a
+- DPM2 a
+- DPM++ 2S a
+- DPM++ 2S a Karras
+　　祖先采样器会在每一步采样时都向图片添加新的随机噪声，这会导致不断采样时，图片内容一直在大幅度的变化，不会稳定下来
+　　需要注意的是,即使其他许多采样器的名字中没有“a”,它们也都是随机采样器。  
+　　简单来说:  
+- 初始采样器每步采样时都加入噪声,属于这一类常见的采样方法。
+- 这类方法由于采样有随机性,属于随机采样器。
+- 即使采样器名称没有“a”,也可能属于随机采样器。
+- 所以“祖先采样器”代表这一类加噪采样方法,这类方法通常是随机的,名称中有无“a”不决定其随机性  
+
+补充：
+
+- 这样的特性也表现在当你想完美复刻某些图时，即使你们参数都一样，但由于采样器的随机性，你很难完美复刻！即原图作者使用了带有随机性的采样器，采样步数越高越难复刻！
+- 带有随机性的采样器步数越高，后期越难控制，有可能是惊喜也可能是惊吓！
+- 这也是大多数绘图者喜欢把步数定在15-30之间的原因。
+
+使用初始采样器的最大特点是图像不会收敛！  
+使用Euler a 生成的图像不会在高采样步数下收敛。  
+Euler a不收敛（采样步数 2 – 40）（注意猫背部）  
+欧拉收敛（采样步数2-40）  
+补充：这就是你选择采样器需要考虑的关键因素之一！需不需收敛！    
+![Alt text](assets_picture/stable_diffusion/image-72.png)   
+需要注意除了祖先采样器，DDIM 和带 SDE 标识的采样器也会在采样时增加随机噪声，比如 DPM++ SDE、DPM++ 2M SDE等。SDE是随机微分方程的意思，英文全称：stochastic differential equations。
+
+因为会在采样时增加随机噪声，使用这些采样器时，即使相同的参数和随机数也有可能生成不同的图片。
+
+##### 2S、2M、3M
+2：代表这是一个二阶采样器。  
+3：代表这是一个三阶采样器。  
+不带这些数字的就是一阶采样器，比如 Euler 采样器。  
+在优化和采样的上下文中，使用二阶方法意味着我们不仅考虑当前的样本点，还考虑这些点如何变化。这可以帮助我们更准确地估计函数的形状和行为，从而更好地进行采样。
+
+S：代表singlestep。这意味着该采样器在每次迭代中只执行一步。  
+由于每次迭代只进行一次更新，采样速度更快，但可能需要更多的采样步数才能达到所需的图像质量。更适合需要快速反馈或实时渲染的应用，因为它可以快速生成图像，尽管可能需要更多的迭代来完善。
+
+M：代表multistep。这意味着该采样器在每次迭代中会执行多步，采样质量更高，但是每次采样速度较慢。  
+由于每次迭代需要进行多次更新，采样速度较慢，但可能只需要较少的采样步数就能达到所需的图像质量。更适合对图像质量有较高要求的应用，或者那些可以接受稍长的计算时间以获得更好结果的应用。
+
+##### Karras噪声调度计划
+带“Karras”标签的采样器采用了Karras论文推荐的噪声调度方案,也就是在采样结束阶段将噪声减小步长设置得更小。这可以让图像质量得到提升。  
+![Alt text](assets_picture/stable_diffusion/image-60.png)  
+
+##### DDIM和PLMS
+DDIM(去噪扩散隐式模型)和PLMS(伪线性多步法)是最初Stable Diffusion v1中搭载的采样器。DDIM是最早为扩散模型设计的采样器之一。PLMS是一个较新的、比DDIM更快的替代方案。 
+它们通常被视为过时且不再广泛使用。   
+
+DDIM为什么有效？？？？  
+采样器算法如何用到代码里实现？每一步？？？  
+
+###### ddpm,ddim原理
+贝叶斯概率角度  
+传统ddpm，马尔科夫链，依赖前一项。训练多少步，采样就多少步，  
+改良。ddim，不采用马尔科夫链假设。假设仍满足贝叶斯。为什么可以？？？？       
+可以跳步采样，想采样几步都行  
+![Alt text](assets_picture/stable_diffusion/image-73.png)  
+
+
+
+
+
+###### eular原理
+得分函数角度  
+score matching --> langevin dynamics  
+score是数据点漂移方向  
+eular a 降噪公式  
+![Alt text](assets_picture/stable_diffusion/image-74.png)  
+加噪，空间数据点多，漂移更有力，加噪先大后小，  
+![Alt text](assets_picture/stable_diffusion/image-75.png)  
+
+
+###### diffusion SDE
+是ddpm从离散到连续的推广，  
+布朗运动  
+![Alt text](assets_picture/stable_diffusion/image-77.png)   
+
+
+###### diffusion ODE
+取出边界条件，直接求特值，跳步去噪  
+F-p方程  
+![Alt text](assets_picture/stable_diffusion/image-78.png)  
+
+###### dpm solver和dpm ++
+dpm solver: fast ODE solver  
+dpm solver++:  ODE， 预测图片而不是预测噪声。与dpm solver等价，都是找一阶二阶近似解。一阶就是ddim。dpm ++与eular也很像。    
+![Alt text](assets_picture/stable_diffusion/image-79.png)  
+
+#####  DPM、DPM adaptive、DPM2和 DPM++
+DPM(扩散概率模型求解器)和DPM++是2022年为扩散模型设计发布的新采样器。它们代表了具有相似架构的求解器系列。  
+DPM 的主要优点是生成质量高，但是由于DPM会自适应调整步长，不能保证在约定的采样步骤内完成任务，整体速度可能会比较慢。  
+　　DPM和DPM2类似,主要区别是DPM2是二阶的(更准确但较慢)。  
+　　DPM++在DPM的基础上进行了改进。  引入了很多新的技术和方法，如EMA（指数移动平均）更新参数、预测噪声方差、添加辅助模型等，从而在采样质量和效率上都取得了显著的提升，是目前效果最优秀的反向扩散采样算法之一。  
+　　DPM adaptive会自适应地调整步数。它可能会比较慢,因为不能保证在采样步数内结束，采样时间不定。
+
+##### UniPC
+UniPC(统一预测器-校正器)是2023年发布的新采样器。它受ODE求解器中的预测器-校正器方法的启发,可以在5-10步内实现高质量的图像生成。
+
+##### 评估采样器
+###### 图像收敛  
+图像收敛参考的指标是SSIM，也就是结构相似性，主要用来衡量两幅图像的相似度。这里的图像是否收敛主要看SSIM的波动情况  
+第 40 步的最后一张图像用作评估采样收敛速度的参考。Euler方法将用作参考。  
+Euler、DDIM、PLMS、LMS Karras和Heun，代表了老式ODE求解器或最初的扩散求解器。
+  
+![Alt text](assets_picture/stable_diffusion/image-61.png)  
+![Alt text](assets_picture/stable_diffusion/image-62.png)  
+如果您的目标是稳定、可重现的图像，则不应使用初始采样器。所有初始采样器都不会收敛。   
+
+DPM和DPM2  
+DPM fast收敛得不好。  
+DPM2和DPM2 Karras的表现比Euler好,但代价是速度下降2倍。  
+DPM adaptive使其表现看起来非常好,因为它使用了自己的自适应采样步骤。但它的速度可能非常慢  
+![Alt text](assets_picture/stable_diffusion/image-63.png)  
+
+DPM++ 求解器  
+DPM++ SDE和DPM++ SDE Karras具有与初始采样器相同的缺点。它们不仅难以收敛,当步数变化时,图像也会大幅波动。（没带a但是带了SDE同样具有初始采样器的特点！）  
+DPM++ 2M和DPM++ 2M Karras的表现不错。当步数足够多时,Karras变体收敛得更快。  
+![Alt text](assets_picture/stable_diffusion/image-64.png)   
+
+
+![Alt text](assets_picture/stable_diffusion/image-65.png)    
+尽管DPM adaptive在收敛方面表现良好，但它也是最慢的。
+　　你可能已经注意到,其他渲染时间分为两组,第一组需要的时间大约相同(约1x),第二组需要的时间约为第一组的两倍(约2x)。这反映了求解器的阶数。二阶求解器虽然更精确,但需要评估去噪U-Net两次。因此它们速度较慢2倍。
+
+
+###### 质量
+![Alt text](assets_picture/stable_diffusion/image-66.png)   
+  DPM++ fast的表现非常差劲。初始采样无法收敛得到其他采样器收敛的图像。  
+  初始采样器倾向于收敛到小猫的图像,而确定性采样器倾向于收敛到猫的图像。  
+  DPM++ adaptive即使自适应收敛最好、时间最长、图也未必最好！ 
+
+###### 感知质量
+收敛不代表图的好坏！即使图像尚未收敛，它仍然可以看起来不错。  
+让我们看看每个采样器可以多快产生高质量的图像。备注：主要是步数和质量的关系。步数不代表时间！
+
+　　这里使用BRISQUE(无参考图像空间质量评估器)测量感知质量。它可以测量自然图像的质量。  
+![Alt text](assets_picture/stable_diffusion/image-67.png)  
+DDIM，PLMS，Heun和LMS Karras的图像质量   
+DDIM在这方面做得非常好，能够在短短8个步骤内产生最高质量的图像。   
+
+![Alt text](assets_picture/stable_diffusion/image-68.png)  
+初始采样器的图像质量  
+　除了一两个例外，所有初始采样器在生成高质量图像步数方面的表现都与Euler相似。 
+
+![Alt text](assets_picture/stable_diffusion/image-69.png)
+DPM 采样器的图像质量  
+　　DPM2采样器的步数性能都略高于欧拉。  
+
+![Alt text](assets_picture/stable_diffusion/image-70.png)  
+DPM++ 采样器的图像质量  
+DPM++ SDE和DPM++ SDE Karras在本次质量测试中表现最佳。  
+
+![Alt text](assets_picture/stable_diffusion/image-71.png)  
+　UniPC在低步上比欧拉略差，但在高步上可与之媲美  
+
+###### 如何选择
+如果你想要快速、可收敛、新的采样器,并要求质量较好,非常好的选择是:
+
+- DPM++ 2M Karras,步数20-30
+- UniPC,步数20-30
+如果你想要高质量图像而不关心收敛性,好的选择是:
+
+- DPM++ SDE Karras,步数10-15(注意:这个采样器较慢)不收敛
+- DDIM,步数10-15
+
+补充：不收敛大概比收敛的慢1倍！  
+如果我们比较关注图片质量，那最好选择带 DPM++、Karras、2M或者3M的，比如：DPM++ 2M Karras、DPM++ 3M SDE Karras、DPM++ 2M SDE Heun Karras、DPM++ SDE Karras ；或者使用较新的 UniPC。  
+如果想要快速或者简单的图像，Euler、DDIM是不错的选择。  
+如果你更喜欢稳定、可重现的图像,避免使用任何初始采样器。  
+如果你更喜欢简单的采样器,Euler和Heun是不错的选择。Heun需要减少步数以节省时间。  
+
+###### 图像评估
+有一些质量衡量标准很容易被算法捕获。例如，我们可以查看像素捕获的信息，并将图像标记为有噪声或模糊。  
+另一方面，算法几乎不可能捕获某些质量度量。例如，算法很难评估需要文化背景知识做判断的图片的质量。  
+
 
 ## 训练细节
 SD在laion2B-en数据集上训练的，它是laion-5b数据集的一个子集，更具体的说它是laion-5b中的英文（文本为英文）数据集。laion-5b数据集是从网页数据Common Crawl中筛选出来的图像-文本对数据集，它包含5.85B的图像-文本对，其中文本为英文的数据量为2.32B，这就是laion2B-en数据集。  
@@ -863,5 +1087,7 @@ refiner model和base model在结构上有一定的不同，其UNet的结构如�
 - Architecture：使用纯transformer模型，比如DiT，但是他们的初步尝试是没有太大的提升；
 - Distillation：蒸馏模型减少采样步数；
 - Diffusion model：采用更好的扩散架构，比如基于连续时间的EDM框架
+
+## 视频基于关键字/图片检索片段
 
 ## SDXL-turbo or SDXL in 4 steps with Latent Consistency LoRAs(LCM)
