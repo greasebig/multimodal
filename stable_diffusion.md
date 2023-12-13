@@ -1,4 +1,5 @@
 # Stable Diffusion
+
 ## 发展脉络  
 
 
@@ -74,6 +75,69 @@ def cosine_beta_schedule(time_steps, s=0.008):
 如何实现前向和反向过程？？？  
 每一步？？？   
 时间如何采样？
+
+### 分类
+现有的生成建模技术根据它们如何表示概率分布，很大程度上可以分为两类。  
+
+likelihood-based models  
+基于似然的模型，通过（近似）最大似然直接学习分布的概率密度（或质量）函数。典型的基于似然的模型包括自回归模型 
+[1, 2, 3]
+ 、归一化流模型 
+[4, 5]
+ 、基于能量的模型（EBM） 
+[6, 7]
+ 和变分自动编码器（VAE） 
+[8, 9]
+ 。    
+ ![Alt text](assets_picture/stable_diffusion/image-87.png)   
+ 贝叶斯网络、马尔可夫随机场 (MRF)、自回归模型和归一化流模型都是基于似然的模型的示例。所有这些模型都表示分布的概率密度或质量函数。   
+
+ implicit generative models  
+ 隐式生成模型 
+[10]
+ ，其中概率分布由其采样过程的模型隐式表示。最突出的例子是生成对抗网络（GAN） 
+[11]
+ ，通过使用神经网络变换随机高斯向量来合成符合数据分布的新样本。  
+![Alt text](assets_picture/stable_diffusion/image-88.png)   
+GAN 是隐式模型的一个例子。它隐式地表示了生成器网络可以生成的所有对象的分布。   
+然而，基于似然的模型和隐式生成模型都有很大的局限性。基于似然的模型要么需要对模型架构进行严格限制，以确保似然计算的易于处理的归一化常数，要么必须依赖代理目标来近似最大似然训练。另一方面，隐式生成模型通常需要对抗性训练，这是出了名的不稳定 
+[12]
+ ，并可能导致模式崩溃   
+
+ 基于分数的模型已在许多下游任务和应用程序上实现了最先进的性能。这些任务包括图像生成 
+[18, 19, 20, 21, 22, 23]
+ （是的，比 GAN 更好！）、音频合成 
+[24, 25, 26]
+ 、形状生成 
+[27]
+ 和音乐生成 
+[28]
+ 。此外，基于分数的模型与归一化流模型有联系，因此允许精确的似然计算和表示学习。此外，建模和估计分数有助于逆向问题解决，其应用包括图像修复 
+[18, 21]
+ 、图像着色 
+[21]
+ 、压缩感知和医学图像重建（例如 CT、MRI） 
+[29]
+ 。
+
+
+主流生成式模型各自的生成逻辑：  
+![Alt text](assets_picture/stable_diffusion/image-83.png)  
+
+### 生成模型GAN
+这里拿GAN详细展开讲讲  
+GAN由生成器g和判别器d组成。其中，生成器主要负责生成相应的样本数据，输入z一般是由高斯分布随机采样得到的噪声。   
+而判别器的主要职责是区分生成器生成的样本与
+（gt
+）
+样本,我们想要的是对样本输出的置信度越接近1越好，而对生成样本输出的置信度越接近0越好。与一般神经网络不同的是，GAN在训练时要同时训练生成器与判别器，所以其训练难度是比较大的。   
+我们可以将GAN中的生成器比喻为印假钞票的犯罪分子，判别器则被当作警察。犯罪分子努力让印出的假钞看起来逼真，警察则不断提升对于假钞的辨识能力。在图像生成任务中也是如此，生成器不断生成尽可能逼真的假图像。判别器则判断图像是图像，还是生成的图像。   
+二者不断博弈优化，最终生成器生成的图像使得判别器完全无法判别真假。   
+
+
+
+
+
 
 ### 生成模型VAE
 2013  
@@ -207,6 +271,8 @@ f=H/h为下采样率（downsampling factor）
 其主要结构如下图所示（这里以输入的latent为64x64x4维度为例），其中encoder部分包括3个CrossAttnDownBlock2D模块和1个DownBlock2D模块，而decoder部分包括1个UpBlock2D模块和3个CrossAttnUpBlock2D模块，中间还有一个UNetMidBlock2DCrossAttn模块。encoder和decoder两个部分是完全对应的，中间存在skip connection。注意3个CrossAttnDownBlock2D模块最后均有一个2x的downsample操作，而DownBlock2D模块是不包含下采样的。  
 ![Alt text](assets_picture/stable_diffusion/image-2.png)   
 
+U-Net：预测噪声残差，结合调度算法（PNDM，DDIM，K-LMS等）进行噪声重构，逐步将随机高斯噪声转化成图片的隐特征。U-Net整体结构一般由ResNet模块构成，并在ResNet模块之间添加CrossAttention模块用于接收文本信息。  
+![Alt text](assets_picture/stable_diffusion/image-84.png)  
 其中CrossAttnDownBlock2D模块的主要结构如下图所示，text condition将通过CrossAttention模块嵌入进来，此时Attention的query是UNet的中间特征，而key和value则是text embeddings。(与transformer解码器第二个多头注意力层一致)  
  CrossAttnUpBlock2D模块和CrossAttnDownBlock2D模块是一致的，但是就是总层数为3。  
 ![Alt text](assets_picture/stable_diffusion/image-3.png)  
@@ -319,7 +385,7 @@ DDIM为什么有效？？？？
 可以跳步采样，想采样几步都行  
 ![Alt text](assets_picture/stable_diffusion/image-73.png)  
 
-
+ 
 
 
 
@@ -522,7 +588,7 @@ guidance_scale为1，3，5，7，9和11下生成的图像对比，可以看到�
 
 #### CFG
 
-另外一个比较容易忽略的参数是negative_prompt，这个参数和CFG有关，前面说过，SD采用了CFG来提升生成图像的质量。  
+另外一个比较容易忽略的参数是negative_prompt，这个参数和CFG有关，前面说过，SD采用了CFG来提升生成图像的质量。？？？？？如何有关？？？  
 这里的negative_prompt便是无条件扩散模型的text输入，前面说过训练过程中我们将text置为空字符串来实现无条件扩散模型，所以这里：negative_prompt = None = ""。  
 ![Alt text](assets_picture/stable_diffusion/image-13.png)  
 在原有的prompt基础加上了一些描述词，有时候我们称之为“魔咒”，不同的模型可能会有不同的魔咒。其生成的效果就大大提升
@@ -850,6 +916,25 @@ prompthero/openjourney：mdjrny-v4风格图像
 和上文提到的Hypernetwork相同，LoRA在稳定扩散模型里也将注意打在了crossattention（注意力交叉）所在模块，LoRA将会将自己的权重添加到注意力交叉层的权重中，以此来实现微调。   
 添加权重是以矩阵的形式，如果这样做，LoRA势必需要存储同样大小的参数，那么LoRA又有了个好点子，直接以矩阵相乘的形式存储，最终文件大小就会小很多了，训练时需要的显存也少了。  
 ![Alt text](assets_picture/stable_diffusion/image-44.png)   
+也就是说，对于SD模型权重w0 ，我们不再对其进行全参微调训练，我们对权重加入残差diff_W的形式，通过训练 来完成优化过程：     
+![Alt text](assets_picture/stable_diffusion/image-82.png)  
+其中![Alt text](assets_picture/stable_diffusion/image-81.png) ，其是由两个低秩矩阵的乘积组成。由于下游细分任务的域非常小，所以 可以取得很小，很多时候我们可以取 。    
+不过除了主模型+LoRA的形式，我们还可以调整LoRA的权重：  
+![Alt text](assets_picture/stable_diffusion/image-85.png)  
+除了调整单个LoRA的权重，我们还可以使用多个LoRA同时作用于一个主模型，并配置他们的权重，我们拿两个LoRA举例：  
+![Alt text](assets_picture/stable_diffusion/image-86.png)  
+
+
+
+
+通常来说，对于矩阵 ，我们使用随机高斯分布初始化，并对于矩阵 使用全 初始化，使得在初始状态下这两个矩阵相乘的结果为 。这样能够保证在初始阶段时，只有SD模型（主模型）生效。    
+LoRA大幅降低了SD模型训练时的显存占用，因为并不优化主模型（SD模型），所以主模型对应的优化器参数不需要存储。但计算量没有明显变化，因为LoRA是在主模型的全参梯度基础上增加了“残差”梯度，同时节省了主模型优化器更新权重的过程。   
+
+
+如何能够小样本分支模型去控制输出？？？  
+秩几阶的影响是什么？？？   
+怎么放置才能产生影响？？？   
+
 效果弱于DreamBooth，主流的训练方式的网络结构目前在尽量追求DreamBooth的效果，但是具体效果是很多因素影响的。   
 控制力弱（虽然即插即拔，但是LoRA训练方法混乱，训练成品良莠不齐，很难有效把控）  
 
@@ -941,7 +1026,7 @@ SD的训练往往是先在256x256上预训练，然后在512x512上继续训练�
 SDXL提出了一种简单的方案来解决这个问题，那就是将图像的原始尺寸（width和height）作为条件嵌入UNet模型中，这相当于让模型学到了图像分辨率参数  
 在训练过程中，我们可以不过滤数据直接resize图像，在推理时，我们只需要送入目标分辨率而保证生成的图像质量。图像原始尺寸嵌入的实现也比较简单，和timesteps的嵌入一样，先将width和height用傅立叶特征编码进行编码，然后将特征concat在一起加在time embedding上。？？？
 
-第二个问题是训练过程中的图像裁剪问题，目前文生图模型预训练往往采用固定图像尺寸，这就需要对原始图像进行预处理，这个处理流程一般是先将图像的最短边resize到目标尺寸，然后沿着图像的最长边进行裁剪（random crop或者center crop）。但是图像裁剪往往会导致图像出现缺失问题，比如下图采用center crop导致人物的头和脚缺失了，这也直接导致模型容易生成缺损的图像。  
+第二个问题是训练过程中的图像裁剪问题，目前文生图模型预训练往往采用固定图像尺寸，这就需要对原始图像进行预处理，这个处理流程一般是先将图像的最短边resize到目标尺寸，然后沿着图像的最长边进行裁剪（random crop或者center crop）。但是图像裁剪往往会导致图像出现缺失问题，比如下图采用center crop导致人物的头和脚缺失了，这也直接导致模型容易生成缺损的图像。？？？？  
 如下图所示，SD 1.5和SD 2.1生成的猫出现头部缺失问题，这其实就是训练过程中裁剪导致的  
 为了解决这个问题，SDXL也将训练过程中裁剪的左上定点坐标作为额外的条件注入到UNet中，这个注入方式可以采用和图像原始尺寸一样的方式，即通过傅立叶编码并加在time embedding上。在推理时，我们只需要将这个坐标设置为(0, 0)就可以得到物体居中的图像（此时图像相当于没有裁剪）。？？?  
 SDXL在训练过程中，可以将两种条件注入（size and crop conditioning）结合在一起使用，训练数据的处理流程和之前是一样的，只是要额外保存图像的原始width和height以及图像crop时的左上定点坐标top和left
@@ -1091,3 +1176,6 @@ refiner model和base model在结构上有一定的不同，其UNet的结构如�
 ## 视频基于关键字/图片检索片段
 
 ## SDXL-turbo or SDXL in 4 steps with Latent Consistency LoRAs(LCM)
+
+## 结尾
+讲大致原理很多人都会，但是具体实现和具体细节原理和推导证明和修改扩展应用上线，没几个人会
