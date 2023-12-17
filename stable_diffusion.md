@@ -213,6 +213,8 @@ KL散度损失的引入有助于塑造潜在表示空间的结构，使其更加
 
 
 ## SD模型的主体结构
+sd中不冻结和冻结的loss如何区别，如何计算？？？  
+
 2022 SD V1.5版本 为例   
 利用编码器对图片进行压缩，然后在潜在表示空间上做diffusion操作，最后我们再用解码器恢复到原始像素空间即可，论文将这个方法称之为感知压缩（Perceptual Compression）。  
 感知压缩本质上是一个tradeoff，非感知压缩的扩散模型由于在像素空间上训练模型，让文图生成等任务能够在消费级GPU上，在10秒级别时间生成图片，大大降低了落地门槛。  
@@ -223,14 +225,12 @@ CLIP text encoder：提取输入text的text embeddings，通过cross attention�
 UNet：扩散模型的主体，用来实现文本引导下的latent生成。  
 ![Alt text](assets_picture/stable_diffusion/image-1.png)  
 
-### autoencoder
+### VAE autoencoder
 autoencoder是一个基于encoder-decoder架构的图像压缩模型，对于一个大小为$H \cdot W \cdot 3$
 的输入图像，encoder模块将其编码为一个大小为$h \cdot w \cdot 3$
 的latent  
 f=H/h为下采样率（downsampling factor）    
-除了采用L1重建损失外，还增加了感知损失（perceptual loss，即LPIPS，具体见论文The Unreasonable Effectiveness of Deep Features as a Perceptual Metric）以及基于patch的对抗训练 ??  
-同时为了防止得到的latent的标准差过大，采用了两种正则化方法：第一种是KL-reg，类似VAE增加一个latent和标准正态分布的KL loss，不过这里为了保证重建效果，采用比较小的权重（～10e-6）；第二种是VQ-reg，引入一个VQ （vector quantization）layer，  不过VQ层是在decoder模块中，这里VQ的codebook采样较高的维度（8192）来降低正则化对重建效果的影响  
-因此在官方发布的一阶段预训练模型中，会看到KL和VQ两种实现。在Stable Diffusion中主要采用AutoencoderKL这种实现。   
+
 
 具体来说，给定图像 x (H W 3)
  ，先利用一个编码器 E
@@ -241,6 +241,11 @@ f=H/h为下采样率（downsampling factor）
 
 
 这种有损压缩肯定是对SD的生成图像质量是有一定影响的，不过好在SD模型基本上是在512x512以上分辨率下使用的。为了改善这种畸变，stabilityai在发布SD 2.0时同时发布了两个在LAION子数据集上精调的autoencoder，注意这里只精调autoencoder的decoder部分，SD的UNet在训练过程只需要encoder部分，所以这样精调后的autoencoder可以直接用在先前训练好的UNet上（这种技巧还是比较通用的，比如谷歌的Parti也是在训练好后自回归生成模型后，扩大并精调ViT-VQGAN的decoder模块来提升生成质量） 
+
+#### loss
+除了采用L1重建损失外，还增加了感知损失（perceptual loss，即LPIPS，具体见论文The Unreasonable Effectiveness of Deep Features as a Perceptual Metric）以及基于patch的对抗训练 ??  
+同时为了防止得到的latent的标准差过大，采用了两种正则化方法：第一种是KL-reg，类似VAE增加一个latent和标准正态分布的KL loss，不过这里为了保证重建效果，采用比较小的权重（～10e-6）；第二种是VQ-reg，引入一个VQ （vector quantization）layer，  不过VQ层是在decoder模块中，这里VQ的codebook采样较高的维度（8192）来降低正则化对重建效果的影响  
+因此在官方发布的一阶段预训练模型中，会看到KL和VQ两种实现。在Stable Diffusion中主要采用AutoencoderKL这种实现。   
 
 总而言之，在训练Autoencoder过程中包含如下几个损失：
 
@@ -265,7 +270,17 @@ f=H/h为下采样率（downsampling factor）
 分词器只能对其在训练期间见过的单词进行分词。例如，CLIP模型中有“dream”和“beach”，但没有“dreambeach”。分词器会将单词“dreambeach”分割为两个标记“dream”和“beach”。因此，一个单词并不总是对应一个标记！  
 另一个需要注意的细节是空格字符也是标记的一部分。在上述情况中，短语“dream beach”产生了两个标记“dream”和“[space]beach”。这些标记与“dreambeach”产生的标记“dream”和“beach”（beach之前没有空格）不同。
 
-分词器怎么手写出来？？？
+#### loss 
+clip loss  
+text encoder和image encoder  
+对比学习
+计算文本特征和图像特征的余弦相似度，余弦相似度分别和相应label做交叉熵损失，两个结果取平均值作为loss反向传播   
+
+![Alt text](assets_picture/stable_diffusion/image-89.png)  
+
+分词器怎么手写出来？？？   
+
+
 
 ### UNet
 其主要结构如下图所示（这里以输入的latent为64x64x4维度为例），其中encoder部分包括3个CrossAttnDownBlock2D模块和1个DownBlock2D模块，而decoder部分包括1个UpBlock2D模块和3个CrossAttnUpBlock2D模块，中间还有一个UNetMidBlock2DCrossAttn模块。encoder和decoder两个部分是完全对应的，中间存在skip connection。注意3个CrossAttnDownBlock2D模块最后均有一个2x的downsample操作，而DownBlock2D模块是不包含下采样的。  
@@ -277,16 +292,19 @@ U-Net：预测噪声残差，结合调度算法（PNDM，DDIM，K-LMS等）进�
  CrossAttnUpBlock2D模块和CrossAttnDownBlock2D模块是一致的，但是就是总层数为3。  
 ![Alt text](assets_picture/stable_diffusion/image-3.png)  
 
-SD和DDPM一样采用预测noise的方法来训练UNet，其训练损失也和DDPM一样：  
-![Alt text](assets_picture/stable_diffusion/image-4.png)  
-这里的c 为text embeddings，此时的模型是一个条件扩散模型。  
 
-将AutoEncoder的编码器输出的latent加噪后作为Unet的输入（同时还有其他条件输入），来预测噪声， 损失函数就是真实噪声和预测噪声的L1或L2损失。  
+
 在训练条件扩散模型时，往往会采用Classifier-Free Guidance（这里简称为CFG），所谓的CFG简单来说就是在训练条件扩散模型的同时也训练一个无条件的扩散模型，同时在采样阶段将条件控制下预测的噪音和无条件下的预测噪音组合在一起来确定最终的噪音，具体的计算公式如下所示：  
 ![Alt text](assets_picture/stable_diffusion/image-6.png)  
 这里的w
 为guidance scale，当w
 越大时，condition起的作用越大，即生成的图像其更和输入文本一致。CFG的具体实现非常简单，在训练过程中，我们只需要以一定的概率（比如10%）随机drop掉text即可，
+
+#### loss
+SD和DDPM一样采用预测noise的方法来训练UNet，其训练损失也和DDPM一样：  
+![Alt text](assets_picture/stable_diffusion/image-4.png)  
+这里的c 为text embeddings，此时的模型是一个条件扩散模型。  
+将AutoEncoder的编码器输出的latent加噪后作为Unet的输入（同时还有其他条件输入），来预测噪声， 损失函数就是真实噪声和预测噪声的L1或L2损失。  
 
 ### 采样器 
 在AUTOMATIC1111中提供了许多采样方法,如欧拉a采样、Heun采样、DDIM采样等。采样器是什么?它们是如何工作的?这些采样方法有什么区别?应该使用哪一种采样器?  
@@ -1173,9 +1191,63 @@ refiner model和base model在结构上有一定的不同，其UNet的结构如�
 - Distillation：蒸馏模型减少采样步数；
 - Diffusion model：采用更好的扩散架构，比如基于连续时间的EDM框架
 
+## 中文sd
+### Taiyi-Stable-Diffusion-1B-Chinese-v0.1
+我们将Noah-Wukong数据集(100M)和Zero数据集(23M)用作预训练的数据集，先用IDEA-CCNL/Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese对这两个数据集的图文对相似性进行打分，取CLIP Score大于0.2的图文对作为我们的训练集。 我们使用IDEA-CCNL/Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese作为初始化的text encoder，冻住stable-diffusion-v1-4(论文)模型的其他部分，只训练text encoder，以便保留原始模型的生成能力且实现中文概念的对齐。该模型目前在0.2亿图文对上训练了一个epoch。 我们在 32 x A100 训练了大约100小时。  
+参数量：1B
+
+### Taiyi-Stable-Diffusion-1B-Chinese-EN-v0.1
+我们将Noah-Wukong数据集(100M)和Zero数据集(23M)用作预训练的数据集，先用IDEA-CCNL/Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese对这两个数据集的图文对相似性进行打分，取CLIP Score大于0.2的图文对作为我们的训练集。 我们使用stable-diffusion-v1-4(论文)模型进行继续训练，其中训练分为两个stage。
+
+第一个stage中冻住模型的其他部分，只训练text encoder，以便保留原始模型的生成能力且实现中文概念的对齐。
+
+第二个stage中将全部模型解冻，一起训练text encoder和diffusion model，以便diffusion model更好的适配中文guidance。
+
+第一个stage我们训练了80小时，第二个stage训练了100小时，两个stage都是用了8 x A100。
+
+## 动手QA
+1.为什么在stable diffusion中输入图像(3,512,512)经过vae.encoder后变成(4,64,64)，为什么第一维多了一个?   
+bs=4  
+vae.encode输出:encoder输出后经过1*1卷积，经过对角高斯分布，logvar(4,4,64,64),mean(4,4,64,64),parameters(4,8,64,64),std,var  
+在经过sample采样得到latent(4,4,64,64)  
+
+2.具体过程  
+接下来根据采样最大步数1000，为bs里每个随机设置小于1000的训练步数  
+根据步数加噪  
+
+
+
+
+
 ## 视频基于关键字/图片检索片段
 
 ## SDXL-turbo or SDXL in 4 steps with Latent Consistency LoRAs(LCM)
+### SDXL-turbo
+SDXL Turbo模型是在SDXL 1.0模型的基础上设计了全新的蒸馏训练方案（Adversarial Diffusion Distillation，ADD），经过蒸馏训练得到的。SDXL Turbo模型只需要1-4步就能够生成高质量图像，这接近实时的性能  
+SDXL Turbo模型本质上依旧是SDXL模型，其网络架构与SDXL一致，可以理解为一种经过蒸馏训练后的SDXL模型。  
+不过SDXL Turbo模型并不包含Refiner部分，只包含U-Net（Base）、VAE和CLIP Text Encoder三个模块。在FP16精度下SDXL Turbo模型大小6.94G（FP32：13.88G），其中U-Net（Base）大小5.14G，VAE模型大小167M以及两个CLIP Text Encoder一大一小分别是1.39G和246M。  
+#### ADD的蒸馏方案的核心知识
+ADD蒸馏方案的整体架构  
+![Alt text](assets_picture/stable_diffusion/4ebbcb2a94e094dbad411d7f507ed139.png)  
+ADD蒸馏方案的主要流程是这样的：将预训练好的SDXL模型作为学生模型（预训练好的网络能显著提高对抗性损失（adversarial loss）的训练效果），它接收经过forward diffusion process后的噪声图片，并输出去噪后的图片，然后用这个去噪后的图片与原图输入判别器中计算adversarial loss以及与教师模型输出的去噪图片计算distillation loss。ADD蒸馏算法中主要通过优化这两个loss来对SDXL Turbo进行训练：
+
+adversarial loss：借鉴了GAN的思想，设计了`Hinge loss`（支持向量机SVM中常用的损失函数）作为SDXL的adversarial loss，通过一个Discriminator来辨别学生模型（SDXL Turbo）生成的图像和真实的图像，以确保即使在一个或两个采样步数的低步数状态下也能确保高图像保真度，同时避免了其他蒸馏方法中常见的失真或模糊问题。
+
+distillation loss：经典的蒸馏损失函数，让SDXL 1.0模型作为教师模型并冻结参数，让学生模型（SDXL Turbo）的输出和教师模型的输出尽量一致，具体计算方式使用的是`跨周期的L2损失`。最后，ADD蒸馏训练中总的损失函数就是adversarial loss和distillation loss的加权和，如下图所示，其中 $ \lambda $ 权重设置2.5：  
+![Alt text](assets_picture/stable_diffusion/8eb8f622069f17b88e2c139ca361fb2b.png)   
+
+目前SDXL Turbo最好只用于生成512x512像素的图片  
+当steps为1和4时，效果都非常好，并且4steps比1step效果更好，这是可以理解的。不过当steps大于4之后，生成的图像明显开始出现过拟合现象。  
+测试了一下SDXL Turbo在不同尺寸（768x768，1024x1024，512x768，768x1024，768x512，1024x768共6中尺寸）下的图像生成质量，可以看到除了1024x1024存在一定的图片特征不完善的情况，其余也具备一定的效果，但是整体上确实不如512x512的效果好。  
+
+SDXL Turbo的一个直接应用，就是与游戏相结合，获得2fps的风格迁移后的游戏画面：  
+
+### SD Turbo
+SD Turbo模型是在Stable Diffusion V2.1的基础上，通过蒸馏训练得到的精简版本，其本质上还是一个Stable Diffusion V2.1模型，其网络架构不变。   
+比起SDXL Turbo，SD Turbo模型更小、速度更快，但是生成图像的质量和Prompt对齐方面不如前者。
+
+
+
 
 ## 结尾
 讲大致原理很多人都会，但是具体实现和具体细节原理和推导证明和修改扩展应用上线，没几个人会
