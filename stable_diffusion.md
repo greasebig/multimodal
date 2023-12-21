@@ -259,13 +259,17 @@ f=H/h为下采样率（downsampling factor）
 这种有损压缩肯定是对SD的生成图像质量是有一定影响的，不过好在SD模型基本上是在512x512以上分辨率下使用的。为了改善这种畸变，stabilityai在发布SD 2.0时同时发布了两个在LAION子数据集上精调的autoencoder，注意这里只精调autoencoder的decoder部分，SD的UNet在训练过程只需要encoder部分，所以这样精调后的autoencoder可以直接用在先前训练好的UNet上（这种技巧还是比较通用的，比如谷歌的Parti也是在训练好后自回归生成模型后，扩大并精调ViT-VQGAN的decoder模块来提升生成质量） 
 
 #### loss
+`由一个通过感知损失[102]和基于补丁的[32]对抗目标[20,23,99]相结合训练的自动编码器组成。这确保了通过强制局部真实性将重建限制在图像流形内，并避免仅依赖像素空间损失（例如 L2 或 L1 目标）而引入的模糊。`
+
 除了采用L1重建损失外，还增加了感知损失（perceptual loss，即LPIPS，具体见论文The Unreasonable Effectiveness of Deep Features as a Perceptual Metric）以及基于patch的对抗训练 ??  
-同时为了防止得到的latent的标准差过大，采用了两种正则化方法：第一种是KL-reg，类似VAE增加一个latent和标准正态分布的KL loss，不过这里为了保证重建效果，采用比较小的权重（～10e-6）；第二种是VQ-reg，引入一个VQ （vector quantization）layer，  不过VQ层是在decoder模块中，这里VQ的codebook采样较高的维度（8192）来降低正则化对重建效果的影响  
+同时为了防止得到的latent的标准差过大，采用了两种正则化方法：第一种是KL-reg，类似VAE增加一个latent和标准正态分布的KL loss，不过这里为了保证重建效果，采用比较小的权重（～10e-6）`对学习得到的；latant的标准正态施加轻微的 KL 惩罚`；第二种是VQ-reg，引入一个VQ （vector quantization）layer，  不过VQ层是在decoder模块中，这里VQ的codebook采样较高的维度（8192）来降低正则化对重建效果的影响   
+`Because our subsequent DM is designed to work with the two-dimensional structure of our learned latent space z = E(x), we can use relatively mild compression rates and achieve very good reconstructions`   
+????   
 因此在官方发布的一阶段预训练模型中，会看到KL和VQ两种实现。在Stable Diffusion中主要采用AutoencoderKL这种实现。   
 
 总而言之，在训练Autoencoder过程中包含如下几个损失：
 
-- 重建损失（Reconstruction Loss）：是重建图像与原始图像在像素空间上的均方误差
+- 重建损失（Reconstruction Loss）：是重建图像与原始图像在像素空间上的均方误差mse_loss
 - 感知损失（Perceptual Loss）：是最小化重构图像和原始图像分别在预训练的VGG网络上提取的特征在像素空间上的均方误差；可参考感知损失（perceptual loss）详解
 - 对抗损失（Adversarial Loss）：使用Patch-GAN的判别器来进行对抗训练， 可参考PatchGAN原理
 - 正则项（KL divergence Loss）：通过增加正则项来使得latent的方差较小且是以0为均值，即计算latent和标准正态分布的KL损失
@@ -317,12 +321,28 @@ U-Net：预测噪声残差，结合调度算法（PNDM，DDIM，K-LMS等）进�
 越大时，condition起的作用越大，即生成的图像其更和输入文本一致。CFG的具体实现非常简单，在训练过程中，我们只需要以一定的概率（比如10%）随机drop掉text即可，
 
 #### loss
+训练采用 mse_loss   
+
+`MSE Loss`（均方误差损失）、`L1 Loss`（绝对值误差损失）和`L2 Loss`（平方误差损失）是深度学习中常用的损失函数，用于衡量模型的预测与实际目标之间的差异。它们之间的区别主要在于计算损失的方式和对误差的敏感程度。
+
+![Alt text](assets_picture/stable_diffusion/image-101.png)
+
+**区别总结**：
+- MSE Loss对异常值更敏感，因为误差平方会放大异常值的影响。
+- L1 Loss对异常值相对较不敏感，因为它使用的是绝对值。
+- L2 Loss在计算时对大误差的惩罚更为严重，这意味着模型在训练过程中可能更加关注那些与目标值差异较大的样本。
+
+
+
 SD和DDPM一样采用预测noise的方法来训练UNet，其训练损失也和DDPM一样：  
 ![Alt text](assets_picture/stable_diffusion/image-4.png)  
 这里的c 为text embeddings，此时的模型是一个条件扩散模型。  
 将AutoEncoder的编码器输出的latent加噪后作为Unet的输入（同时还有其他条件输入），来预测噪声， 损失函数就是真实噪声和预测噪声的L1或L2损失。  
 
 ### 采样器 
+PNDMScheduler 使用伪数值方法来处理扩散模型，PNDMScheduler 是一个调度器，用于处理扩散模型，其采用伪数值方法，包括 Runge-Kutta 和线性多步方法。
+
+
 在AUTOMATIC1111中提供了许多采样方法,如欧拉a采样、Heun采样、DDIM采样等。采样器是什么?它们是如何工作的?这些采样方法有什么区别?应该使用哪一种采样器?  
 
 什么是采样？  
@@ -420,8 +440,27 @@ DDIM为什么有效？？？？
 传统ddpm，马尔科夫链，依赖前一项。训练多少步，采样就多少步，  
 改良。ddim，不采用马尔科夫链假设。假设仍满足贝叶斯。为什么可以？？？？       
 可以跳步采样，想采样几步都行  
-![Alt text](assets_picture/stable_diffusion/image-73.png)  
 
+
+1. 为什么DDPM一定要这么多次采样  
+第一，减小 T行不行？    
+答案是不行， T必须很大   
+![Alt text](assets_picture/stable_diffusion/image-103.png)   
+2. 第二，为什么非要一步一步降噪，跳步行不行？   
+![Alt text](assets_picture/stable_diffusion/image-104.png)   
+
+ddim原理
+![Alt text](assets_picture/stable_diffusion/image-105.png)   
+![Alt text](assets_picture/stable_diffusion/image-106.png)    
+想办法让(2)成立  
+![Alt text](assets_picture/stable_diffusion/image-107.png)  
+![Alt text](assets_picture/stable_diffusion/image-108.png)   
+![Alt text](assets_picture/stable_diffusion/image-109.png)   
+再由（4）求解  
+
+![Alt text](assets_picture/stable_diffusion/image-73.png)   
+DDIM的采样过程
+![Alt text](assets_picture/stable_diffusion/image-110.png)   
  
 ###### 加噪
 ![Alt text](assets_picture/stable_diffusion/image-93.png)   
@@ -446,17 +485,32 @@ eular a 降噪公式
 
 
 ###### diffusion SDE
+随机微分方程   
 是ddpm从离散到连续的推广，  
 布朗运动  
 ![Alt text](assets_picture/stable_diffusion/image-77.png)   
+在ODE方程里加入随机性主要有两种方式：   
+1、随机化初值   
+![Alt text](assets_picture/stable_diffusion/image-112.png)   
+2、过程加入噪声(Additioned Random Noise)   
+![Alt text](assets_picture/stable_diffusion/image-113.png)
 
+通常也将SDE的形式写成：   
+![Alt text](assets_picture/stable_diffusion/image-114.png)   
+随机过程的噪声来源是多种多样的，如果噪声来源来自于布朗运动(Brown Motion)，我们称这种SDE为![Alt text](assets_picture/stable_diffusion/image-115.png)SDE   
+![Alt text](assets_picture/stable_diffusion/image-116.png)   
 
 
 
 ###### diffusion ODE
+常微分方程   
 取出边界条件，直接求特值，跳步去噪  
 F-p方程  
 ![Alt text](assets_picture/stable_diffusion/image-78.png)  
+常微分方程(ODE)的基本形式为：  
+![Alt text](assets_picture/stable_diffusion/image-111.png)   
+
+
 
 ###### dpm solver和dpm ++
 dpm solver: fast ODE solver  
@@ -564,7 +618,9 @@ SD的训练是多阶段的（先在256x256尺寸上预训练，然后在512x512�
 
   - The above model is finetuned from SD 2.0-base, which was trained as a standard noise-prediction model on 512x512 images and is also made available.
 - Version 2.1 New stable diffusion model (Stable Diffusion 2.1-v, Hugging Face) at 768x768 resolution and (Stable Diffusion 2.1-base, HuggingFace) at 512x512 resolution, both based on the same number of parameters and architecture as 2.0 and fine-tuned on 2.0, on a less restrictive NSFW filtering of the LAION-5B dataset.
-- Stable UnCLIP 2.1 New stable diffusion finetune (Stable unCLIP 2.1, Hugging Face) at 768x768 resolution, based on SD2.1-768. This model allows for image variations and mixing operations as described in Hierarchical Text-Conditional Image Generation with CLIP Latents, and, thanks to its modularity, can be combined with other models such as KARLO. Comes in two variants: Stable unCLIP-L and Stable unCLIP-H, which are conditioned on CLIP ViT-L and ViT-H image embeddings, respectively.  
+- Stable UnCLIP 2.1 New stable diffusion finetune (Stable unCLIP 2.1, Hugging Face) at 768x768 resolution, based on SD2.1-768. This model allows for image variations and mixing operations as described in Hierarchical Text-Conditional Image Generation with CLIP Latents, and, thanks to its modularity, can be combined with other models such as KARLO. Comes in two variants: Stable unCLIP-L and Stable unCLIP-H, which are conditioned on CLIP ViT-L and ViT-H image embeddings, respectively.   
+- GLIGEN (Grounded Language-to-Image Generation)  
+如果给出了输入图像，可以在边界框定义的区域插入由文本描述的对象。否则，它将生成由标题/提示描述的图像，并在边界框定义的区域插入由文本描述的对象。它在 COCO2014D 和 COCO2014CD 数据集上进行训练，并且该模型使用冻结的 CLIP ViT-L/14 文本编码器来根据接地输入调节自身。   
 
 可以看到SD v1.3、SD v1.4和SD v1.5其实是以SD v1.2为起点在improved_aesthetics_5plus数据集上采用CFG训练过程中的不同checkpoints，目前最常用的版本是SD v1.4和SD v1.5。
 
@@ -580,7 +636,9 @@ SD的训练是多阶段的（先在256x256尺寸上预训练，然后在512x512�
 ![Alt text](assets_picture/stable_diffusion/image-49.png)  
 - 从真实图像和生成图像中分别抽取n个随机子样本，并通过Inception-v3网络获得它们的特征向量。
 - 计算真实图像子样本的特征向量的平均值mu1和协方差矩阵sigma1，以及生成图像子样本的特征向量的平均值mu2和协方差矩阵sigma2。
-- 计算mu1和mu2之间的欧几里德距离d^2，以及sigma1和sigma2的平方根的Frobenius范数||sigma1^(1/2)*sigma2^(1/2)||_F。
+- 计算mu1和mu2之间的欧几里德距离d^2，以及sigma1和sigma2的平方根的Frobenius范数||sigma1^(1/2)*sigma2^(1/2)||_F。  
+  - ![Alt text](assets_picture/stable_diffusion/image-117.png)   
+  ![Alt text](assets_picture/stable_diffusion/image-118.png)   
   - 欧几里德距离 d = sqrt((x1-x2)^+(y1-y2)^)
   - Frobenius norm（弗罗贝尼乌斯-范数）（F-范数）  
   ![Alt text](assets_picture/stable_diffusion/image-51.png)  
@@ -1020,17 +1078,31 @@ SD-T就可以继续尝试用特定数据集来训练学习新东西来试图完�
 - 由于SD-T进行扩散时参考了我们多出来的条件，所以最终出现的图会具有我们预处理时的特征   
 ![Alt text](assets_picture/stable_diffusion/image-47.png)  
 
-T2I-Adapter原理和ControlNet相似，都是为了给稳定扩散添加额外的输入条件 
+#### T2I-Adapter
+T2I-Adapter原理和ControlNet相似，都是为了给稳定扩散添加额外的输入条件   
+与 前述Control-Net/Composer的出发点一致的是，希望通过更多，更细粒度的控制条件，来显式地实现对于扩散模型的生成的结果   
+![Alt text](assets_picture/stable_diffusion/image-98.png)   
+![Alt text](assets_picture/stable_diffusion/image-99.png)   
+整体架构由两部分组成： 1)预先训练好的具有固定参数的stable diffusion模型；2)几个不同的T2L-Adapter的控制输入信息。T2I-Adapter的详细体系结构见右下角。  
 
+Stable diffusion model 不足之处：文章中指出，之所以Stable Diffusion model控制效果不好，是因为文本输入的控制信息不够准确。因此希望通过T2l-Adapt，来更精确的对SD网络进行控制。   
+
+3.详细结构：它由4个特征提取块和3 个下采样块组成，以改变原始条件输入的特征分辨率，将其降采样到64。之后基于不同的特征维度，对原始的stable diffusion model进行微调，这边需要注意的是，不同的特征维度要接入到对应的网络层中。  
+![Alt text](assets_picture/stable_diffusion/image-100.png)   
+在优化过程中，首先固定SD中的参数，只优化T2I-Adapt。优化过程与SD相似：   
 
 ## SDXL
 
-SDXL和之前的版本一样也是采用latent diffusion架构，但SDXL相比之前的版本SD 1.x和SD 2.x有明显的提升  
+SDXL和之前的版本一样也是采用latent diffusion架构，但SDXL相比之前的版本SD 1.x和SD 2.x有明显的提升，SDXL的性能始终超过Stable Diffusion以前所有的版本，比如SD 1.5 、SD2.1。  
 可以看到SDXL无论是在文本理解还是在生成图像质量上，相比之前的版本均有比较大的提升。SDXL性能的提升主要归功于以下几点的改进：  
 
-- SDXL的模型参数增大为2.3B，这几乎上原来模型的3倍，而且SDXL采用了两个CLIP text encoder来编码文本特征；
-- SDXL采用了额外的条件注入来改善训练过程中的数据处理问题，而且最后也采用了多尺度的微调；
-- SDXL级联了一个细化模型来提升图像的生成质量。
+- SDXL的模型参数增大为2.3B，这几乎上原来模型的3倍，UNet主干架构增加了3倍，而且SDXL采用了两个CLIP text encoder来编码文本特征；
+- SDXL采用了额外的条件注入来改善训练过程中的数据处理问题，而且最后也采用了多尺度的微调；两种简单而有效的附加调节技术，不需要任何形式的额外监督；
+- SDXL级联了一个细化模型来提升图像的生成质量。一个单独的基于扩散的细化模型，该模型对SDXL产生的潜在信号采用去噪处理 
+
+尽管策略是作为潜在扩散模型的扩展开展的 ，但其中大多数也适用于像素空间的对应物。
+
+
 
 ### 模型架构上的优化
 SDXL的autoencoder依然采用KL-f8，但是并没有采用之前的autoencoder，而是基于同样的架构采用了更大的batch size（256 vs 9）重新训练，同时采用了EMA。重新训练的VAE模型（尽管和VAE有区别，大家往往习惯称VAE）相比之前的模型，其重建性能有一定的提升，性能对比如下所示：  
@@ -1466,7 +1538,21 @@ pooled_output=torch.Size([4, 768])
 
 完成，但是只取出3.2的hidden_states=torch.Size([4, 52, 768])
 
-### 4 unetcondition
+#### bert原理
+训练目标：  
+BERT：通过最大似然估计（MLE）来训练模型，预测缺失的词汇和判断两个句子是否相邻。  
+CLIP：通过对比学习的方式，使得文本和图像在共享嵌入空间中有相似的表示，以便能够比较它们的语义关系。   
+
+模型结构：  
+BERT：是一个基于Transformer架构的模型，通过双向上下文来理解单词在句子中的含义。BERT的预训练过程包括掩码语言模型（MLM）任务和下一句预测（NSP）任务。  
+CLIP：结合了图像和文本信息的模型，使用了一种对比学习的方法。它包括一个视觉编码器和一个文本编码器，通过共享嵌入空间来使文本和图像之间的语义对齐。    
+
+IDEA-CCNL/Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese  
+在训练中文版的CLIP时，我们使用chinese-roberta-wwm作为语言的编码器，并将open_clip中的ViT-L-14应用于视觉的编码器。   
+ Chinese pre-trained BERT with Whole Word Masking.   
+ 科大讯飞开源
+
+### 4 unet_condition
 target = noise   
 model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample   
 torch.Size([4, 4, 64, 64])  
@@ -1489,9 +1575,9 @@ torch.Size([4, 52, 768])
 由linear(320,1280),silu,linear(1280,1280)  
 emb=torch.Size([4, 1280])   
 
-#### 开始unet
-conv_in   
-![Alt text](assets_picture/stable_diffusion/image-2.png)
+#### 4.2 开始unet
+conv_in增加通道数到320   
+![Alt text](assets_picture/stable_diffusion/image-2.png)    
 ```
 unet
   "block_out_channels": [
@@ -1500,14 +1586,287 @@ unet
     1280,
     1280
   ],
-1280与TimestepEmbedding对齐
+
+```
+三个crossattblock，每个含两个(resnet,transformer)组合，最后接一个downblock     
+```
+sample, res_samples = 
+downsample_block(
+      hidden_states=sample,加噪的样本
+      temb=emb,加噪步长嵌入
+      encoder_hidden_states=encoder_hidden_states,
+      文本信息嵌入
+```
+```
+hidden_states = torch.utils.checkpoint.checkpoint(
+                    create_custom_forward(resnet),
+                    hidden_states,加噪的样本
+                    temb,加噪步长嵌入
+                    **ckpt_kwargs,
+                )
+                hidden_states = attn(
+                    hidden_states,加噪的样本resnet输出
+                    encoder_hidden_states=encoder_hidden_states,文本信息嵌入
+                    cross_attention_kwargs=cross_attention_kwargs,
+                    attention_mask=attention_mask,
+                    encoder_attention_mask=encoder_attention_mask,
+                    return_dict=False,
+                )[0]
+
+```
+- resnetblock  
+对sample:groupnorm,silu,conv,torch.Size([4, 320, 64, 64])   
+对temb:silu,linear*(1280,320),增加维度，torch.Size([4, 320, 1, 1])   
+hidden_states = hidden_states + temb   
+将 b 的最后两个维度进行复制，使其形状变为 [4, 320, 64, 64]，然后再与 a 相加。这样，相加操作就能够逐元素地进行     
+![Alt text](assets_picture/stable_diffusion/image-97.png)   
+torch.Size([4, 320, 64, 64])    
+groupnorm,silu,dropout(0),conv,  
+将一开始的输入相加得到最后  
+输出torch.Size([4, 320, 64, 64])   
+
+
+![Alt text](assets_picture/stable_diffusion/image-102.png)  
+- Transformer2DModel 本质是做 Transformer的decoder部分  
+留一个残差1  
+groupnorm,conv(1*1)即proj_in,torch.Size([4, 320, 64, 64])  
+reshape成torch.Size([4, 4096, 320])    
+basic_transformer_blocks   
+  - 留残差1.5
+  - norm, 
+  - attn  
+  residual,残差2  
+  不做prepare-attn-mask      
+  toq,tok,tov   
+  8个头，to_qkv后做head_to_batch_dim：Reshape the tensor from `[batch_size, seq_len, dim]` to `[batch_size, seq_len, heads, dim // heads]` `heads` is
+        the number of heads initialized while constructing the `Attention` class.    
+  If output_dim=`3`, the tensor is
+                reshaped to `[batch_size * heads, seq_len, dim // heads]`.  
+  view(batch_size * num_heads, -1, dim_per_head)   
+  torch.Size([4, 4096, 320])变torch.Size([32, 4096, 40])   
+  计算score:torch.Size([32, 4096, 4096])。`多个头确实score第一维度更多八倍`   
+  计算qkv结果，即selfattn结果torch.Size([32, 4096, 40])  
+  batch_to_head_dim：torch.Size([4, 4096, 320])  
+  linear,drop(0)  
+  加残差2  
+  
+  - attn加残差1.5做下面输入    
+  - norm  
+  - cross attn  
+    
+    - attn2 加入文本信息encoder_hidden_states  
+    residual,残差3  
+    不做prepare-attn-mask   
+    toq,torch.Size([4, 4096, 320])变torch.Size([4, 4096, 320])   
+    `文本信息encoder_hidden_states做tok,tov， torch.Size([4, 52, 768])变torch.Size([4, 52, 320])`     
+    8个头，qkv做head_to_batch_dim：Reshape the tensor from `[batch_size, seq_len, dim]` to `[batch_size, seq_len, heads, dim // heads]` `heads` is
+          the number of heads initialized while constructing the `Attention` class.   
+    torch.Size([4, 4096, 320])变torch.Size([32, 4096, 40])   
+    `kv torch.Size([4, 52, 320])变torch.Size([32, 52, 40])`
+    计算score:`torch.Size([32, 4096, 52])`   
+    计算qkv结果，即selfattn结果torch.Size([32, 4096, 40])  
+    batch_to_head_dim：torch.Size([4, 4096, 320])  
+    linear,drop(0)  
+    加残差3  
+
+  - cross attn输入加cross attn输出   
+feed_forward: norm,geglu(linear(320,1280)),drop(0),linear(1280,320)   
+torch.Size([4, 4096, 320])  
+feed_forward的输入加输出
+
+- reshape成torch.Size([4, 320, 64, 64])  
+linear  
+输出加残差1   
+
+
+
+完成一组(resnet,transformer)   
+完成两组(resnet,transformer) 完成一个下采样LoRACompatibleConv(320, 320, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))，
+
+返回  
+output_states len=3 含有两组结果和下采样结果（用以unet跳连）     
+hidden_states含最后结果  
+
+down_block_res_samples = (sample,)  
+down_block_res_samples += output_states
+就完成一个crossattblock   
+
+
+完成3个crossattblock   
+down_block_res_samples不断增加    
+完成一个downblock  
+down_block_res_samples不断增加    
+
+downblock不含下采样     
+sample, res_samples = downsample_block(hidden_states=sample, temb=emb,   
+含两个resnetblock  
+第一个resnetblock
+- 残差input_tensor
+- norm,silu,conv,torch.Size([4, 1280, 8, 8])  
+- temb:torch.Size([4, 1280])  
+silu,linear  
+- hidden_states = hidden_states + temb  
+- norm，silu,conv
+- output_tensor = (input_tensor + hidden_states)   
+
+出来output_states = output_states + (hidden_states,)是len=2  
+
+downblock结束继续down_block_res_samples += res_samples   
+
+最后左半边unet结束，收集的down_block_res_samples的len=12，每个小层结果     
+以及sample  
+down_block_res_samples构成
+```
+（12个：）
+conv_in结果:1
+crossattblock：3：两组(resnet,transformer) 完成一个下采样
+crossattblock：3
+crossattblock：3
+downblock：2：两个ResnetBlock2D
+midblock没有
 ```
 
+![Alt text](assets_picture/stable_diffusion/image-2.png)   
+过mid_block   
+不改变down_block_res_samples        
+只改变sample   
+```
+sample = self.mid_block(
+                    sample,
+                    emb,
+                    encoder_hidden_states=encoder_hidden_states,  
+
+t_emb = self.time_proj(timesteps)
+(4,320)
+        t_emb = t_emb.to(dtype=sample.dtype)
+
+        emb = self.time_embedding(t_emb, timestep_cond)
+      (4,1280)
+```
+和上面一样配置Transformer2DModel+downblock（两个resnetblock）  
+```
+hidden_states = self.resnets[0](hidden_states, temb, scale=lora_scale)
+        for attn, resnet in zip(self.attentions, self.resnets[1:]):
+
+        hidden_states = attn(
+                    hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,
+
+        hidden_states = torch.utils.checkpoint.checkpoint(
+                    create_custom_forward(resnet),
+                    hidden_states,
+                    temb,
+```
+#### 4.3 up
+![Alt text](assets_picture/stable_diffusion/image-2.png)   
+##### 4.3.1 UpBlock2D（三个resnetblock和一个upsample）  
+- 取出down_block_res_samples后三个，每次更新down_block_res_samples   
+res_samples = down_block_res_samples[-len-(upsample_block.resnets) :]    
+- sample = upsample_block(
+                    hidden_states=sample,
+                    temb=emb,
+                    res_hidden_states_tuple=res_samples,  
+
+resnetblock   
+- 取出res_samples最后一个（`encoder后的结果`），每次更新res_samples     
+torch.Size([4, 1280, 8, 8])   
+- hidden_states（`midblock的结果`）  
+torch.Size([4, 1280, 8, 8])    
+hidden_states = torch.cat([hidden_states, res_hidden_states], dim=1)   
+torch.Size([4, 2560, 8, 8])   
+- create_custom_forward(resnet), hidden_states, temb  
+- input_tensor留残差2  
+- norm,silu,conv(2560,1280)  
+- temb:torch.Size([4, 1280]),silu,linear,  
+- torch.Size([4, 1280])
+- hidden_states:norm,silu,drop0,conv,   
+- input_tensor:conv_shortcut
+- output_tensor = (input_tensor + hidden_states)
+
+完成三个resnetblock。res_samples用在这些地方，没用在upsamplers   
+
+upsamplers   
+- 最近邻插值两倍放大，torch.Size([4, 1280, 16, 16])
+- LoRACompatibleConv(1280, 1280, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))    
+
+
+三个resnetblock加一个upsamplers结束UpBlock2D   
+
+##### 4.3.2 cross_attention
+共三个cross_attention。每个cross_attention含三组（ResnetBlock2D，Transformer2DModel）和一个upsamplers   
+单个cross_attention   
+- 取出down_block_res_samples后三个进res_samples，每次更新down_block_res_samples  
+- for resnet, attn in zip(self.resnets, self.attentions):  
+取出res_samples最后一个（`encoder后的结果`），每次更新res_samples。   
+`cat`,hidden_states = torch.cat([hidden_states, res_hidden_states], dim=1)  
+
+开始（ResnetBlock2D，Transformer2DModel）   
+与encoder操作一样     
+attn采用BasicTransformerBlock的decoder    
+- norm,proj_in, hidden_states.permute(0, 2, 3, 1).reshape(batch, height * width,  inner_dim)    
+- 开始Blocks操作（主要含attn1，attn2，ff）  
 
 
 
 
+注意   
+Blocks出来，norm，ff层   
+- norm_hidden_states作为输入
+- torch.Size([4, 256, 1280])  
+- GEGLU(
+  (proj): LoRACompatibleLinear(in_features=1280, out_features=10240, bias=True)
+)      
+```
+GEGLU
 
+hidden_states, gate = self.proj(hidden_states, *args).chunk(2, dim=-1)
+        return hidden_states * self.gelu(gate)
+```  
+torch.Size([4, 256, 5120])   
+- drop0,LoRACompatibleLinear(in_features=5120, out_features=1280, bias=True)  
+- hidden_states = ff_output + hidden_states（没norm的）   
+- torch.Size([4, 256, 1280])    
+
+Transformer2DModel未结束  
+- hidden_states.reshape(batch, height, width, inner_dim).permute(0, 3, 1, 2).contiguous()  
+- proj_out：LoRACompatibleConv(1280, 1280, kernel_size=(1, 1), stride=(1, 1))   
+- output = hidden_states + residual   
+residual是刚进Transformer2DModel时，还未proj_in的  
+
+三个cross_attention结束出来后  
+sample=torch.Size([4, 320, 64, 64])   
+norm,silu,conv=Conv2d(320, 4, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))  
+
+unet结束返回  
+torch.Size([4, 4, 64, 64])
+
+#### loss
+```
+loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+
+# Gather the losses across all processes for logging (if we use distributed training).
+avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()          
+train_loss += avg_loss.item() / args.gradient_accumulation_steps
+
+# Backpropagate
+ccelerator.backward(loss)
+内部计算loss = loss / self.gradient_accumulation_steps
+
+```
+
+配置
+```
+parser.add_argument(
+        "--gradient_accumulation_steps",
+        type=int,
+        default=2,
+
+parser.add_argument(
+        "--train_batch_size", type=int, default=4
+
+
+
+```
 
 
 
@@ -1540,7 +1899,7 @@ SD Turbo模型是在Stable Diffusion V2.1的基础上，通过蒸馏训练得到
 比起SDXL Turbo，SD Turbo模型更小、速度更快，但是生成图像的质量和Prompt对齐方面不如前者。
 
 
-
+## sd还能怎么改进
 
 ## 结尾
 讲大致原理很多人都会，但是具体实现和具体细节原理和推导证明和修改扩展应用上线，没几个人会

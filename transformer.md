@@ -73,7 +73,10 @@
 ### Self-Attention 的输出
   
   得到矩阵 Q, K, V之后就可以计算出 Self-Attention 的输出了，***计算公式***如下：  
-  ![Alt text](assets_picture/transformer/image-8.png)  
+  ![Alt text](assets_picture/transformer/image-8.png)    
+  对于较大的dk
+来说在完成qkt
+后将会得到很大的值，而这将导致在经过sofrmax操作后产生非常小的梯度，不利于网络的训练。  
 
   公式中计算矩阵Q和K每一行向量的内积  
   Q乘以K的转置后，得到的矩阵行列数都为 n，n 为句子单词数，这个矩阵可以表示单词之间的 attention 强度。下图为Q乘以 
@@ -204,4 +207,33 @@ Softmax：Softmax函数的公式是exp(xi) / Σ(exp(xj))，其中xi是输入向�
   训练时因为知道ground truth embeding，相当于知道正确答案，网络可以一次训练完成。  
   
 预测时，首先输入start，输出预测的第一个单词 然后start和新单词组成新的query，再输入decoder来预测下一个单词，循环往复 直至end
+
+## QA
+### 1.为什么要shifted right
+整体右移一位  
+Shifted Right 实质上是给输出添加起始符/结束符，方便预测第一个Token/结束预测过程。   
+### 2.多头注意力，本质就是拆开自注意力，然后算qk分数和qkv最后分数，有什么用？
+多头注意力例子  
+
+residual,残差2  
+  不做prepare-attn-mask      
+  toq,tok,tov   
+  8个头，to_qkv后做head_to_batch_dim：Reshape the tensor from `[batch_size, seq_len, dim]` to `[batch_size, seq_len, heads, dim // heads]` `heads` is
+        the number of heads initialized while constructing the `Attention` class.    
+  If output_dim=`3`, the tensor is
+                reshaped to `[batch_size * heads, seq_len, dim // heads]`.  
+  view(batch_size * num_heads, -1, dim_per_head)   
+  torch.Size([4, 4096, 320])变torch.Size([32, 4096, 40])   
+  计算score:torch.Size([32, 4096, 4096])。`多个头确实score第一维度更多八倍`   
+  计算qkv结果，即selfattn结果torch.Size([32, 4096, 40])`qkv结果数量一样`  
+  batch_to_head_dim：torch.Size([4, 4096, 320])  
+  linear,drop(0)  
+  加残差2    
+
+表达能力： 多头注意力使得模型可以学习多个不同的关注点或表示空间。每个注意力头都可以专注于学习数据中的不同关系或特征，从而提高模型对复杂关系的建模能力  
+降低过拟合： 多头注意力可以被视为一种正则化机制，因为它允许模型通过关注不同的信息源来减轻过拟合的风险。每个头都相当于模型中的一个子模型，可以减小过拟合的可能性。  
+
+论文作者提出用于克服「模型在对当前位置的信息进行编码时，会过度的将注意力集中于自身的位置」的问题。   
+原论文中说的是，将模型分为多个头，形成多个子空间，可以让模型去关注不同方面的信息   
+
 
