@@ -272,8 +272,9 @@ f=H/h为下采样率（downsampling factor）
 - 重建损失（Reconstruction Loss）：是重建图像与原始图像在像素空间上的均方误差mse_loss
 - 感知损失（Perceptual Loss）：是最小化重构图像和原始图像分别在预训练的VGG网络上提取的特征在像素空间上的均方误差；可参考感知损失（perceptual loss）详解
 - 对抗损失（Adversarial Loss）：使用Patch-GAN的判别器来进行对抗训练， 可参考PatchGAN原理
-- 正则项（KL divergence Loss）：通过增加正则项来使得latent的方差较小且是以0为均值，即计算latent和标准正态分布的KL损失
-
+- 正则项（KL divergence Loss）：通过增加正则项来使得latent的方差较小且是以0为均值，即计算latent和标准正态分布的KL损失  
+![Alt text](assets_picture/stable_diffusion/image-120.png)   
+KL散度计算的就是数据的原分布与近似分布的概率的对数差的期望值。    
 
 
 ### CLIP text encoder 
@@ -456,7 +457,7 @@ ddim原理
 ![Alt text](assets_picture/stable_diffusion/image-107.png)  
 ![Alt text](assets_picture/stable_diffusion/image-108.png)   
 ![Alt text](assets_picture/stable_diffusion/image-109.png)   
-再由（4）求解  
+再由（4）求解前向过程  
 
 ![Alt text](assets_picture/stable_diffusion/image-73.png)   
 DDIM的采样过程
@@ -1091,7 +1092,8 @@ Stable diffusion model 不足之处：文章中指出，之所以Stable Diffusio
 ![Alt text](assets_picture/stable_diffusion/image-100.png)   
 在优化过程中，首先固定SD中的参数，只优化T2I-Adapt。优化过程与SD相似：   
 
-## SDXL
+## SDXL 1.0 July 26, 2023
+SDXL 0.9 June 22, 2023   
 
 SDXL和之前的版本一样也是采用latent diffusion架构，但SDXL相比之前的版本SD 1.x和SD 2.x有明显的提升，SDXL的性能始终超过Stable Diffusion以前所有的版本，比如SD 1.5 、SD2.1。  
 可以看到SDXL无论是在文本理解还是在生成图像质量上，相比之前的版本均有比较大的提升。SDXL性能的提升主要归功于以下几点的改进：  
@@ -1115,15 +1117,24 @@ SDXL相比之前的版本，一个最大的变化采用了更大的UNet，下表
 ![Alt text](assets_picture/stable_diffusion/image-25.png)  
 下面我们来重点看一下SDXL是如何扩增UNet参数的，SDXL的UNet模型结构如下图所示：  
 ![Alt text](assets_picture/stable_diffusion/image-26.png)  
-SDXL的第一个stage采用的是普通的DownBlock2D，而不是采用基于attention的CrossAttnDownBlock2D，这个主要是为了计算效率，因为SDXL最后是直接生成1024x1024分辨率的图像，对应的latent大小为128x128x4，如果第一个stage就使用了attention（包含self-attention），所需要的显存和计算量都是比较大的。  
+SDXL的第一个stage采用的是普通的DownBlock2D，而不是采用基于attention的CrossAttnDownBlock2D，这个主要是为了计算效率，因为SDXL最后是直接生成1024x1024分辨率的图像，对应的latent大小为128x128x4，如果第一个stage就使用了attention（包含self-attention），所需要的显存和计算量都是比较大的。    
+为了提高效率，并在最高特征级别中省略了Transformer块，在较低级别中使用2个和10个块，还在UNet 中完全删除了最低级别（8倍下采样）
+
 另外一个变化是SDXL只用了3个stage，这意味着只进行了两次2x下采样，而之前的SD使用4个stage，包含3个2x下采样。  
 SDXL的网络宽度（这里的网络宽度是指的是特征channels）相比之前的版本并没有改变，3个stage的特征channels分别是320、640和1280。  
 
 SDXL参数量的增加主要是使用了更多的transformer blocks，在之前的版本，每个包含attention的block只使用一个transformer block（self-attention -> cross-attention -> ffn），但是SDXL中stage2和stage3的两个CrossAttnDownBlock2D模块中的transformer block数量分别设置为2和10，并且中间的MidBlock2DCrossAttn的transformer blocks数量也设置为10（和最后一个stage保持一样）。可以看到SDXL的UNet在空间维度最小的特征上使用数量较多的transformer block，这是计算效率最高的。
+   
 
 SDXL的另外一个变动是text encoder，SD 1.x采用的text encoder是123M的OpenAI CLIP ViT-L/14，而SD 2.x将text encoder升级为354M的OpenCLIP ViT-H/14。  
-SDXL更进一步，不仅采用了更大的OpenCLIP ViT-bigG（参数量为694M），而且同时也用了OpenAI CLIP ViT-L/14，这里是分别提取两个text encoder的倒数第二层特征   
-其中OpenCLIP ViT-bigG的特征维度为1280，而CLIP ViT-L/14的特征维度是768，两个特征concat在一起总的特征维度大小是2048，这也就是SDXL的context dim。OpenCLIP ViT-bigG相比OpenCLIP ViT-H/14，在性能上有一定的提升  
+SDXL更进一步，不仅采用了更大的OpenCLIP ViT-bigG（参数量为694M），而且同时也用了OpenAI CLIP ViT-L/14，这里是分别提取两个text encoder的倒数第二层特征()    
+
+类似clip终止层数（clip skip）   
+![Alt text](assets_picture/stable_diffusion/image-119.png)    
+可见ClipSkip值较小，生成含有丰富提示词的插图；ClipSkip的值较大，生成忽略提示词的插图。
+
+其中OpenCLIP ViT-bigG的特征维度为1280，而CLIP ViT-L/14的特征维度是768，两个特征concat在一起总的特征维度大小是2048，这也就是SDXL的context dim。OpenCLIP ViT-bigG相比OpenCLIP ViT-H/14，在性能上有一定的提升   
+
 这里有一个处理细节是提取了OpenCLIP ViT-bigG的pooled text embedding（用于CLIP对比学习所使用的特征），将其映射到time embedding的维度并与之相加。这种特征嵌入方式在强度上并不如cross attention，只是作为一种辅助。
 - 比如在Stable Diffusion中,将Time Embedding引入U-Net中,帮助其在扩散过程中从容预测噪声
   - DDPM  
@@ -1545,7 +1556,13 @@ CLIP：通过对比学习的方式，使得文本和图像在共享嵌入空间�
 
 模型结构：  
 BERT：是一个基于Transformer架构的模型，通过双向上下文来理解单词在句子中的含义。BERT的预训练过程包括掩码语言模型（MLM）任务和下一句预测（NSP）任务。  
-CLIP：结合了图像和文本信息的模型，使用了一种对比学习的方法。它包括一个视觉编码器和一个文本编码器，通过共享嵌入空间来使文本和图像之间的语义对齐。    
+CLIP：结合了图像和文本信息的模型，使用了一种对比学习的方法。它包括一个视觉编码器和一个文本编码器，通过共享嵌入空间来使文本和图像之间的语义对齐。      
+
+BERT（Bidirectional Encoder Representations from Transformers）通过预训练来学习无标注数据中的深度双向表示，预训练结束后通过添加一个额外的输出层进行微调，最终在多个NLP任务上实现了SOTA。   
+
+对比GPT，BERT使用了双向self-attention架构，而GPT使用的是受限的self-attention， 即限制每个token只能attend到其左边的token。   
+我们有理由相信一个深度双向模型比left-to-right模型和left-to-right和right-to-left简单连接的模型的效果更加强大。不幸的是，标准的条件语言模型只能够够left-to-right或者right-to-left地训练，这是因为双向条件会使每个token能够间接地“看到自己”，并且模型能够在多层上下文中简单地预测目标词。
+
 
 IDEA-CCNL/Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese  
 在训练中文版的CLIP时，我们使用chinese-roberta-wwm作为语言的编码器，并将open_clip中的ViT-L-14应用于视觉的编码器。   
@@ -1867,6 +1884,7 @@ parser.add_argument(
 
 
 ```
+### 如何证明成功冻结权重不训练？
 
 
 
@@ -1874,7 +1892,7 @@ parser.add_argument(
 ## 视频基于关键字/图片检索片段
 
 ## SDXL-turbo or SDXL in 4 steps with Latent Consistency LoRAs(LCM)
-### SDXL-turbo
+### SDXL-turbo November 28, 2023
 SDXL Turbo模型是在SDXL 1.0模型的基础上设计了全新的蒸馏训练方案（Adversarial Diffusion Distillation，ADD），经过蒸馏训练得到的。SDXL Turbo模型只需要1-4步就能够生成高质量图像，这接近实时的性能  
 SDXL Turbo模型本质上依旧是SDXL模型，其网络架构与SDXL一致，可以理解为一种经过蒸馏训练后的SDXL模型。  
 不过SDXL Turbo模型并不包含Refiner部分，只包含U-Net（Base）、VAE和CLIP Text Encoder三个模块。在FP16精度下SDXL Turbo模型大小6.94G（FP32：13.88G），其中U-Net（Base）大小5.14G，VAE模型大小167M以及两个CLIP Text Encoder一大一小分别是1.39G和246M。  
@@ -1900,6 +1918,178 @@ SD Turbo模型是在Stable Diffusion V2.1的基础上，通过蒸馏训练得到
 
 
 ## sd还能怎么改进
+• 单阶段生成
+
+目前，团队使用的是一个额外的细化（refinement）模型以两阶段的方式，来生成SDXL的最佳样本。这样就需要将两个庞大的模型加载到内存中，从而降低了可访问性和采样速度。
+
+• 文本合成
+
+规模和更大的文本编码器（OpenCLIP ViT-bigG）有助于改善文本渲染能力，而引入字节级tokenizer或将模型扩展到更大规模，可能会进一步提高文本合成的质量。
+
+• 架构
+
+在探索阶段，团队尝试了基于Transformer的架构，如UViT和DiT，但没有显著改善。然而，团队仍然认为，通过更仔细的超参数研究，最终能够实现更大的基于Transformer的架构的扩展。
+
+• 蒸馏
+
+虽然原始的Stable Diffusion模型已经得到了显著的改进，但代价是增加了推断的成本（包括显存和采样速度）。因此，未来的工作将集中于减少推断所需的计算量，并提高采样速度上。比如通过引导蒸馏、知识蒸馏和渐进蒸馏等方法。
+
+### DiT：纯Transformer  19 Dec 2022
+Meta的工作DiT：Scalable Diffusion Models with Transformers，它是完全基于transformer架构的扩散模型      
+其中最大的模型DiT-XL/2在ImageNet 256x256的类别条件生成上达到了SOTA（FID为2.27）。   
+DiT所使用的扩散模型沿用了OpenAI的Improved DDPM，相比原始DDPM一个重要的变化是不再采用固定的方差，而是采用网络来预测方差   
+![Alt text](assets_picture/stable_diffusion/image-121.png)   
+
+DiT所设计的transformer架构   
+DiT基本沿用了ViT的设计，如下图所示，首先采用一个patch embedding来将输入进行patch化，即得到一系列的tokens。其中patch size属于一个超参数，它直接决定了tokens的数量，这会影响模型的计算量    
+DiT的patch size共选择了三种设置：p=2,4,8
+。注意token化之后，这里还要加上positional embeddings，这里采用非学习的sin-cosine位置编码。    
+![Alt text](assets_picture/stable_diffusion/image-122.png)   
+DiT共设计了四种方案来实现两个额外embeddings的嵌入，具体如下：
+
+In-context conditioning：将两个embeddings看成两个tokens合并在输入的tokens中，这种处理方式有点类似ViT中的cls token，实现起来比较简单，也不基本上不额外引入计算量。  
+Cross-attention block：将两个embeddings拼接成一个数量为2的序列，然后在transformer block中插入一个cross attention，条件embeddings作为cross attention的key和value；这种方式也是目前文生图模型所采用的方式，它需要额外引入15%的Gflops。  
+Adaptive layer norm (adaLN) block：采用adaLN，这里是将time embedding和class embedding相加，然后来回归scale和shift两个参数，这种方式也基本不增加计算量。  
+adaLN-Zero block：采用zero初始化的adaLN，这里是将adaLN的linear层参数初始化为zero，这样网络初始化时transformer block的残差模块就是一个identity函数；另外一点是，这里除了在LN之后回归scale和shift，还在每个残差模块结束之前回归一个scale，如上图所示。   
+论文对四种方案进行了对比试验，发现采用adaLN-Zero效果是最好的，所以DiT默认都采用这种方式来嵌入条件embeddings。   
+![Alt text](assets_picture/stable_diffusion/image-124.png)
+
+虽然DiT发现adaLN-Zero效果是最好的，但是这种方式只适合这种只有类别信息的简单条件嵌入，因为只需要引入一个class embedding；但是对于文生图来说，其条件往往是序列的text embeddings，采用cross-attention方案可能是更合适的。
+
+虽然DiT看起来不错，但是只在ImageNet上生成做了实验，并没有扩展到大规模的文生图模型。而且在DiT之前，其实也有基于transformer架构的扩散模型研究工作，比如U-ViT，目前也已经有将transformer应用在大规模文生图（基于扩散模型）的工作，比如UniDiffuser，但是其实都没有受到太大的关注。目前主流的文生图模型还是采用基于UNet，UNet本身也混合了卷积和attention，它的优势一方面是高效，另外一方面是不需要位置编码比较容易实现变尺度的生成，这些对具体落地应用都是比较重要的
+
+## UViT
+全面研究了ViT上的三种架构设计选择——空间缩减、双通道和多尺度特征——并证明了一种普通的ViT架构可以实现这一目标，而无需手工制作多尺度特征
+
+
+## svd November 21, 2023
+结合补帧软件效果拔群，缺点就是不可控，完全盲盒，看AI心情   
+
+### 背景
+在当前的视频生成模型研究中，普遍采用从头开始训练或增加时间层对文生图模型进行微调的方法。要么是通过插入额外的时间层从预训练的图像模型进行微调（部分或全部）     
+针对2D图像合成训练的潜在扩散模型已经通过插入时间层并在小规模、高质量的视频数据集上微调，转变为生成式视频模型    
+
+### 方法
+论文提出了视频模型三步走策略：   
+1）文生图预训练、（图像模型预训练）  
+在图像模型预训练阶段，使用SD2.1模型在LVD数据集上训练了两个模型  
+2）大规模低分辨率视频数据预训练、（视频模型预训练）   
+在精选视频预训练数据集阶段，通过人类偏好建立了适当的数据集，并使用不同的标注方法筛选出子集，以此训练模型并得到最佳阈值，并由此获得精选的预训练数据集LVD-F   
+3）小规模高质量数据集的高分辨率视频微调。（视频模型微调）    
+
+
+与一般的时间混合层不同，本文采用Blattmann提出的架构，在每个空间卷积和注意力层之后加入时间卷积层和注意力层   
+这一方法构建了一个强大的通用运动表示先验模型，能够轻松微调为图生视频模型或多视角合成模型。文章还提出了帧率微调的概念，并采用EDM架构，将噪声schedule转为更高的噪声值。     
+
+实现了大规模视频模型训练，包括基础模型的构建和五种不同任务的微调   
+在大规模训练视频模型方面，论文详细介绍了基础模型的预训练、微调以及应用于不同任务的过程。基础模型的预训练基于SD2.1，强调了噪声schedule在高分辨率生成中的重要性。微调方面，研究团队对不同的任务进行了微调，包括文生视频、图生视频、帧插值预测和多视角3D重建（，以一种前馈方式生成对象的多个一致视图，并胜过专门的新视图合成方法，如Zero123XL和 SyncDreamer）。特别地，高分辨率图生视频模型的微调考虑了条件一致性和过饱和问题，并通过与其他视频模型的对比验证了其优越性。   
+
+### 数据集
+提出的筛选方案应用于一个包含大约6亿个样本的大型视频数据集，并训练一个强大的预训练文本到视频基础模型，提供了一个通用的运动表示。我们利用这一点，并在一个较小的、高质量的数据集上微调基础模型，用于高分辨率的下游任务，如文本到视频和图像到视频，在这些任务中，我们从单一的条件图像预测一系列帧。
+
+在公开可访问的视频数据集中，WebVid-10M 数据集尽管带有水印并且大小不理想，但一直是一个常用的选择 。此外，WebVid-10M 通常与图像数据一起使用 ，以进行联合图像-视频训练。然而，这增加了分离图像和视频数据对最终模型的影响的难度。
+
+我们使用三种不同的合成字幕方法为每个剪辑进行注释：首先，我们使用图像字幕生成器 CoCa对每个剪辑的中间帧进行注释，并使用 "V-BLIP" 获得视频字幕。最后，我们通过对前两个字幕进行基于LLM的总结来生成剪辑的第三个描述。   
+Large Video Dataset (LVD)，包括5.8亿个带注释的视频剪辑对，总计212年的内容。   
+
+所得到的数据集包含可能会降低我们最终视频模型性能的示例，例如运动较少的剪辑、过多的文本存在或总体审美价值较低的剪辑。因此，我们额外使用密集的光流为数据集进行注释，我们以2 FPS计算光流，并通过移除平均光流幅度低于一定阈值的任何视频来过滤掉静态场景。事实上，当考虑LVD的运动分布（见图2，右图）时，通过光流分数，我们确定了其中一个接近静态的剪辑子集。此外，我们还应用光学字符识别来清除包含大量书面文本的剪辑。  
+![Alt text](assets_picture/stable_diffusion/image-125.png)  
+最后，我们使用CLIP嵌入为每个剪辑的第一帧、中间帧和最后一帧进行注释，从中计算审美得分 以及文本-图像相似度。   
+
+为了避免切换和淡入淡出影响到合成视频，我们以级联方式在三个不同的FPS级别上应用了一个切换检测流程。图2左侧提供了切换检测的必要性证据：在应用我们的切换检测流程后，我们获得了显著更多的剪辑（约为4倍），表明未经处理的数据集中的许多视频剪辑包含了超出元数据获得的切换。     
+
+### 训练
+#### 阶段 I：图像预训练 
+Stable Diffusion 2.1，以为其提供强大的视觉表示     
+为了分析图像预训练的效果，我们在LVD的一个1000万子集上训练并比较了两个相同的视频模型，详细信息请参见附录D；其中一个使用了预训练的空间权重，另一个没有使用。我们使用人类偏好研究进行了这些模型的比较，如图3a所示，结果清楚地显示了图像预训练模型在质量和提示跟随方面都更受欢迎    
+
+#### 阶段 II：筛选视频预训练数据集 
+由于在视频领域没有同样强大的现成表示方法可用来过滤不想要的示例，因此我们依赖人类偏好作为信号来创建适当的预训练数据集    
+具体来说，我们使用下面描述的不同方法筛选LVD的子集，然后考虑在这些数据集上训练的潜在视频扩散模型的基于人类偏好的排名。（而不是人眼去筛选视频数据）    
+
+更具体地说，对于第3.1节引入的每种类型的注释（即CLIP分数、审美分数、OCR检测率、合成字幕、光流分数），我们从未经筛选的、随机抽样的LVD的大小为9.8M的子集LVD-10M出发，系统地去除底部的12.5%、25%和50%的示例     
+
+将这种筛选方法应用到LVD会得到一个最终的预训练数据集，包括152M个训练示例，我们将其称为LVD-F    
+
+#### 阶段 III：高质量微调 
+使用了一个由高视觉保真度的250K个预标注视频剪辑组成的小微调数据集。 
+
+
+#### 预训练基础模型 
+作为第一步，我们通过在尺寸为256×384的图像上使用Karras等人提出的网络预调整方法，将我们图像模型的固定离散噪声计划微调为连续噪声。
+
+在插入时间层后，我们在分辨率为256×384的14帧上对模型进行训练。我们使用标准的EDM噪声计划进行150k次迭代，批量大小为1536。
+
+接下来，我们微调模型，以生成14个分辨率为320×576的帧，进行100k次迭代，批量大小为768。
+
+#### 高分辨率文本到视频模型 
+约1百万个样本。数据集中的样本通常包含大量的物体运动，稳定的摄像机运动以及良好对齐的字幕，并且整体视觉质量很高。我们以576×1024的分辨率对基础模型进行了50,000次迭代的微调（再次将噪声计划转向更多噪声），批量大小为768。 
+
+#### 高分辨率图像到视频模型 
+除了文本到视频，我们还对我们的基础模型进行了图像到视频生成的微调，其中视频模型接收一幅`静态输入图像作为条件`。因此，我们将馈送到基础模型的文本嵌入替换为条件的CLIP图像嵌入。此外，我们将条件帧的噪声增强版本按通道连接到UNet的输入中。我们不使用任何遮罩技术，只是将帧沿时间轴进行简单复制。我们微调了两个模型，一个预测14帧，另一个预测25帧      
+标准的基于分类器的引导可能会导致图像伪影：引导过少可能导致与**条件帧**不一致，而引导过多可能导致过度饱和。   
+与使用恒定引导尺度不同，沿着帧轴线性增加引导尺度是有帮助的。???   
+
+#### 相机运动 LoRA 
+为了在图像到视频生成中促进受控的相机运动，我们在模型的时间注意块中训练了各种相机运动 LoRA 参数    
+我们在一个带有丰富相机运动元数据的小数据集上训练这些额外的参数。特别地，我们使用了三个数据子集，其中相机运动被分类为“水平移动”、“缩放”和“静止”。在图7中，我们展示了相同条件帧的三个模型的样本；    
+![Alt text](assets_picture/stable_diffusion/image-126.png)   
+
+
+
+#### 帧插值 
+为了获得高帧率的平滑视频，我们将我们的高分辨率文本到视频模型微调为帧插值模型。我们遵循Blattmann等人的方法，通过掩码将左帧和右帧连接到UNet的输入。该模型学会了在两个条件帧内预测三帧，有效地将帧率提高了四倍。令人惊讶的是，我们发现非常少量的迭代（约10k）就足以获得一个良好的模型。   
+
+#### 多视角合成 
+为了同时获得一个对象的多个新视角，我们在多视角数据集上对我们的图像到视频SVD模型进行微调    
+数据集。我们在两个数据集上对我们的SVD模型进行微调，其中SVD模型接收单个图像并输出多视角图像序列    
+(i) Objaverse 的一个子集，包含来自原始数据集的150K个经过筛选和CC许可的合成3D对象。对于每个对象，我们使用随机采样的HDRI(High-Dynamic Range (HDR) image 高动态范围成像)环境映射和仰角在[-5◦，30◦]之间渲染了21帧的360◦轨道视频。我们在Google Scanned Objects (GSO)数据集中随机选择了50个对象，对生成的模型进行评估。    
+(ii) MVImgNet，包含一般家庭物品的随意捕获多视角视频。我们将视频分成约200K个训练视频和900个测试视频。我们将以纵向模式捕获的帧旋转到横向模式。    
+
+指标。我们使用标准的峰值信噪比（PSNR）、LPIPS 和CLIP 之间的相应对地面实况和生成帧的相似性分数（CLIP-S）来评估50个GSO测试对象的性能。
+
+训练。我们使用8个80GB的A100 GPU，在总批处理大小为16的情况下，对所有模型进行了12k步（约16小时）的训练，学习率为1e-5。     
+
+我们生成的帧具有多视角一致性和逼真性   
+![Alt text](assets_picture/stable_diffusion/image-127.png)  
+
+稳定视频扩散提供了一个强大的视频表示，我们可以通过微调视频模型来进行最先进的图像到视频合成以及其他高度相关的应用，如用于相机控制的LoRAs。最后，我们提供了有关视频扩散模型的多视角微调的先驱性研究，并展示了SVD构成了一个强大的3D先验，在多视角合成方面取得了最新的成果，同时仅使用了先前方法计算资源的一小部分。    
+
+
+
+## Stable Animation SDK 5月12日 2023
+用户可以通过提供提示词(没有图像)、提供源图像或源视频等3种不同的方式创建动画。
+
+
+
+通过使用Stability AI的动画接口，艺术家可以使用所有的Stable Diffusion模型（包括Stable Diffusion 2.0和最新模型XL）来生成动画。  
+我们提供了三种创建动画的方法:
+
+1. 文本到动画：用户输入文本提示(与Stable Diffusion一样)并调整各种参数以产生动画。
+
+2. 初始图像输入+文本输入：用户提供一个初始图像，作为动画的起点。文本提示词与图像一起使用，以产生最终的输出动画。
+
+3.输入视频+文本输入：用户提供一个初始视频作为动画的基础。通过调整各种参数，将得到一段由文本提示词指导的输出动画。
+
+
+
+## 算法上线方式  
+Gradio、Streamlit 和 Dash
+![Alt text](assets_picture/stable_diffusion/image-123.png)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ## 结尾
 讲大致原理很多人都会，但是具体实现和具体细节原理和推导证明和修改扩展应用上线，没几个人会
