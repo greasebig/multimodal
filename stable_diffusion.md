@@ -1072,7 +1072,8 @@ ControlNet将神经网络权重复制到一个锁定（locked）副本和一个�
 stable diffusion的U-Net结构如下图所示，包含12个编码器块（Encoder Block），12个解码器块(Decoder Block)，还有一个中间块（Middle），完整模型包括25个块，其中有17个块是主块。文本使用clip进行编码，时间步长采用位置编码。   
 ![Alt text](assets_picture/stable_diffusion/image-46.png)   
 我们将上图的简单结构附加在stable diffusion 原来的U-Net结构上14次（相当于复制了一次编码器块和中间块，然后改造成ControlNet结构），就完整地对原有的结构进行了控制（影响），原有的stable diffusion 就化身为了 stable diffusion + controlnet   
-SD-T就可以继续尝试用特定数据集来训练学习新东西来试图完成我们想要模型完成的新任务，比如边缘检测，比如人体姿势探测 
+SD-T就可以继续尝试用特定数据集来训练学习新东西来试图完成我们想要模型完成的新任务，比如边缘检测，比如人体姿势探测    
+ControlNet 把每一种不同类别的输入分别训练了模型，目前公开的有下面8个。分别是：canny，depth，hed，mlsd，normal，openpose，scribble，seg。
 
 - ControlNet通过获取额外的输入图像并使用Canny边缘检测器（Canny edge detector）来获取轮廓图，这一过程被称为预处理
 - 轮廓图（自然是会被处理到隐空间去）将会作为额外的条件（conditioning）和文本提示被送入SD-T
@@ -1092,7 +1093,7 @@ Stable diffusion model 不足之处：文章中指出，之所以Stable Diffusio
 ![Alt text](assets_picture/stable_diffusion/image-100.png)   
 在优化过程中，首先固定SD中的参数，只优化T2I-Adapt。优化过程与SD相似：   
 
-## SDXL 1.0 July 26, 2023
+## SDXL 1.0 （July 26, 2023）
 SDXL 0.9 June 22, 2023   
 
 SDXL和之前的版本一样也是采用latent diffusion架构，但SDXL相比之前的版本SD 1.x和SD 2.x有明显的提升，SDXL的性能始终超过Stable Diffusion以前所有的版本，比如SD 1.5 、SD2.1。  
@@ -1127,7 +1128,7 @@ SDXL参数量的增加主要是使用了更多的transformer blocks，在之前�
    
 
 SDXL的另外一个变动是text encoder，SD 1.x采用的text encoder是123M的OpenAI CLIP ViT-L/14，而SD 2.x将text encoder升级为354M的OpenCLIP ViT-H/14。  
-SDXL更进一步，不仅采用了更大的OpenCLIP ViT-bigG（参数量为694M），而且同时也用了OpenAI CLIP ViT-L/14，这里是分别提取两个text encoder的倒数第二层特征()    
+SDXL更进一步，不仅采用了更大的OpenCLIP ViT-bigG（参数量为694M），而且同时也用了OpenAI CLIP ViT-L/14，这里是分别提取两个text encoder的倒数第二层特征()？？？？融合》？？     
 
 类似clip终止层数（clip skip）   
 ![Alt text](assets_picture/stable_diffusion/image-119.png)    
@@ -1858,7 +1859,11 @@ unet结束返回
 torch.Size([4, 4, 64, 64])
 
 #### loss
+对unet预测出的噪声和真实噪声计算均方误差损失，反向回传
 ```
+target = noise
+model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+
 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
 
 # Gather the losses across all processes for logging (if we use distributed training).
@@ -1892,7 +1897,7 @@ parser.add_argument(
 ## 视频基于关键字/图片检索片段
 
 ## SDXL-turbo or SDXL in 4 steps with Latent Consistency LoRAs(LCM)
-### SDXL-turbo November 28, 2023
+### SDXL-turbo （November 28, 2023）
 SDXL Turbo模型是在SDXL 1.0模型的基础上设计了全新的蒸馏训练方案（Adversarial Diffusion Distillation，ADD），经过蒸馏训练得到的。SDXL Turbo模型只需要1-4步就能够生成高质量图像，这接近实时的性能  
 SDXL Turbo模型本质上依旧是SDXL模型，其网络架构与SDXL一致，可以理解为一种经过蒸馏训练后的SDXL模型。  
 不过SDXL Turbo模型并不包含Refiner部分，只包含U-Net（Base）、VAE和CLIP Text Encoder三个模块。在FP16精度下SDXL Turbo模型大小6.94G（FP32：13.88G），其中U-Net（Base）大小5.14G，VAE模型大小167M以及两个CLIP Text Encoder一大一小分别是1.39G和246M。  
@@ -1934,7 +1939,7 @@ SD Turbo模型是在Stable Diffusion V2.1的基础上，通过蒸馏训练得到
 
 虽然原始的Stable Diffusion模型已经得到了显著的改进，但代价是增加了推断的成本（包括显存和采样速度）。因此，未来的工作将集中于减少推断所需的计算量，并提高采样速度上。比如通过引导蒸馏、知识蒸馏和渐进蒸馏等方法。
 
-### DiT：纯Transformer  19 Dec 2022
+### DiT：纯Transformer  （19 Dec 2022）
 Meta的工作DiT：Scalable Diffusion Models with Transformers，它是完全基于transformer架构的扩散模型      
 其中最大的模型DiT-XL/2在ImageNet 256x256的类别条件生成上达到了SOTA（FID为2.27）。   
 DiT所使用的扩散模型沿用了OpenAI的Improved DDPM，相比原始DDPM一个重要的变化是不再采用固定的方差，而是采用网络来预测方差   
@@ -1962,7 +1967,7 @@ adaLN-Zero block：采用zero初始化的adaLN，这里是将adaLN的linear层�
 全面研究了ViT上的三种架构设计选择——空间缩减、双通道和多尺度特征——并证明了一种普通的ViT架构可以实现这一目标，而无需手工制作多尺度特征
 
 
-## svd November 21, 2023
+## svd （November 21, 2023）
 结合补帧软件效果拔群，缺点就是不可控，完全盲盒，看AI心情   
 
 ### 背景
@@ -2057,7 +2062,7 @@ Stable Diffusion 2.1，以为其提供强大的视觉表示
 
 
 
-## Stable Animation SDK 5月12日 2023
+## Stable Animation SDK （5月12日 2023）
 用户可以通过提供提示词(没有图像)、提供源图像或源视频等3种不同的方式创建动画。
 
 
@@ -2086,9 +2091,10 @@ Gradio、Streamlit 和 Dash
 
 
 
-
-
-
+## 缺点
+运行的代码没有明确输入输出导向，阶段目标和总体目标，要解决什么事情，输出的评价指标的具体记录没有。    
+没有用最新的模型去跑。    
+bert怎么装上去的其实不明白   
 
 
 ## 结尾
