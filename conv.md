@@ -455,4 +455,335 @@ We stack the convolved outputs together.
 
 ## 可变形卷积 (Deformable Convolution)
 以上的卷积计算都是固定的，每次输入不同的图像数据，卷积计算的位置都是完全固定不变，即使是空洞卷积/转置卷积，0填充的位置也都是事先确定的。而可变形卷积是指卷积核上对每一个元素额外增加了一个h和w方向上偏移的参数，然后根据这个偏移在feature map上动态取点来进行卷积计算，这样卷积核就能在训练过程中扩展到很大的范围。而显而易见的是可变性卷积虽然比其他卷积方式更加灵活，可以根据每张输入图片感知不同位置的信息，类似于注意力，从而达到更好的效果。   
-![Alt text](assets_picture/conv/image-22.png)  
+![Alt text](assets_picture/conv/image-22.png)     
+
+
+
+## 分词器   
+由于神经网络模型不能直接处理文本，因此我们需要先将文本转换为数字，这个过程被称为编码 (Encoding)，其包含两个步骤：
+
+使用分词器 (tokenizer) 将文本按词、子词、字符切分为 tokens；   
+将所有的 token 映射到对应的 token ID。   
+
+子词分词法有很多不同取得最小可分子词的方法，例如BPE（Byte-Pair Encoding，字节对编码法），WordPiece，SentencePiece，Unigram等等    
+
+分词策略   
+根据切分粒度的不同，分词策略可以分为以下几种：
+
+
+
+### 按词切分 (Word-based)   
+![Alt text](assets_picture/conv/image-26.png)   
+这种策略的问题是会将文本中所有出现过的独立片段都作为不同的 token，从而产生巨大的词表。而实际上很多词是相关的，例如 “dog” 和 “dogs”、“run” 和 “running”，如果给它们赋予不同的编号就无法表示出这种关联性。
+
+词表就是一个映射字典，负责将 token 映射到对应的 ID（从 0 开始）。神经网络模型就是通过这些 token ID 来区分每一个 token。
+
+当遇到不在词表中的词时，分词器会使用一个专门的 unk
+ token 来表示它是 unknown 的。显然，如果分词结果中包含很多 unk
+ 就意味着丢失了很多文本信息，因此一个好的分词策略，应该尽可能不出现 unknown token。
+
+ ### 按字符切分 (Character-based)   
+ ![Alt text](assets_picture/conv/image-27.png)    
+ 这种策略把文本切分为字符而不是词语，这样就只会产生一个非常小的词表，并且很少会出现词表外的 tokens。
+
+但是从直觉上来看，字符本身并没有太大的意义，因此将文本切分为字符之后就会变得不容易理解。这也与语言有关，例如中文字符会比拉丁字符包含更多的信息，相对影响较小。此外，这种方式切分出的 tokens 会很多，例如一个由 10 个字符组成的单词就会输出 10 个 tokens，而实际上它们只是一个词。
+
+因此现在广泛采用的是一种同时结合了按词切分和按字符切分的方式——按子词切分 (Subword tokenization)。    
+
+### **按子词切分 (Subword) **
+子词分词法有很多不同取得最小可分子词的方法，例如BPE（Byte-Pair Encoding，字节对编码法），WordPiece，SentencePiece，Unigram等等   
+多语言支持：Sentence-Piece    
+Sentence-Piece，其实是HF里面大量模型会调用的包，例如ALBERT，XLM-RoBERTa和T5：   
+这个包主要是为了多语言模型设计的，它做了两个重要的转化：    
+以unicode方式编码字符，将所有的输入（英文、中文等不同语言）都转化为unicode字符，解决了多语言编码方式不同的问题。  
+将空格编码为‘_’， 如'New York' 会转化为['_', 'New', '_York']，这也是为了能够处理多语言问题，比如英文解码时有空格，而中文没有， 这种语言区别。  
+
+
+力求trade off，存储最少，运算最少，意义最大，unk最少    
+
+高频词直接保留，低频词被切分为更有意义的子词。例如 “annoyingly” 是一个低频词，可以切分为 “annoying” 和 “ly”，这两个子词不仅出现频率更高，而且词义也得以保留。下图展示了对 “Let’s do tokenization!“ 按子词切分的结果：
+
+![Alt text](assets_picture/conv/image-28.png)
+
+可以看到，“tokenization” 被切分为了 “token” 和 “ization”，不仅保留了语义，而且只用两个 token 就表示了一个长词。这种策略只用一个较小的词表就可以覆盖绝大部分文本，基本不会产生 unknown token。尤其对于土耳其语等黏着语，几乎所有的复杂长词都可以通过串联多个子词构成。    
+
+  
+
+
+调用 Tokenizer.save_pretrained() 函数会在保存路径下创建三个文件：
+
+special_tokens_map.json：映射文件，里面包含 unknown token 等特殊字符的映射关系；   
+tokenizer_config.json：分词器配置文件，存储构建分词器需要的参数；   
+vocab.txt：词表，一行一个 token，行号就是对应的 token ID（从 0 开始）。   
+
+### BERT 分词器   
+BERT族：Word-Piece   
+Word-Piece和BPE非常相似   
+BERT在使用Word-Piece时加入了一些特殊的token，例如[CLS]和[SEP]   
+
+```
+sequence = "Using a Transformer network is simple"
+tokens = tokenizer.tokenize(sequence)
+
+print(tokens)
+
+['Using', 'a', 'Trans', '##former', 'network', 'is', 'simple']
+
+
+ids = tokenizer.convert_tokens_to_ids(tokens)
+
+[7993, 170, 13809, 23763, 2443, 1110, 3014]
+
+```
+可以看到，BERT 分词器采用的是子词切分策略，它会不断切分词语直到获得词表中的 token，例如 “transformer” 会被切分为 “transform” 和 “##er”。    
+
+前面说过，文本编码 (Encoding) 过程包含两个步骤：
+
+分词：使用分词器按某种策略将文本切分为 tokens；   
+映射：将 tokens 转化为对应的 token IDs。
+
+```
+sequence_ids = tokenizer.encode(sequence)
+
+包括但不限于，同时将cls和sep自动添加到首尾
+tokens = tokenizer.tokenize(sequence)
+ids = tokenizer.convert_tokens_to_ids(tokens)
+
+
+实际使用，直接
+tokenized_text = tokenizer("Using a Transformer network is simple")
+
+这样不仅会返回分词后的 token IDs，还包含模型需要的其他输入。例如 BERT 分词器还会自动在输入中添加 token_type_ids 和 attention_mask：   
+{'input_ids': [101, 7993, 170, 13809, 23763, 2443, 1110, 3014, 102], 
+ 'token_type_ids': [0, 0, 0, 0, 0, 0, 0, 0, 0], 
+ 'attention_mask': [1, 1, 1, 1, 1, 1, 1, 1, 1]}
+```
+
+
+文本解码 (Decoding) 与编码相反，负责将 token IDs 转换回原来的字符串。注意，解码过程不是简单地将 token IDs 映射回 tokens，还需要合并那些被分为多个 token 的单词。
+
+
+### Padding 操作
+按批输入多段文本产生的一个直接问题就是：batch 中的文本有长有短，而输入张量必须是严格的二维矩形，维度为 [bs,seq len]
+，即每一段文本编码后的 token IDs 数量必须一样多。例如下面的 ID 列表是无法转换为张量的：
+```
+batched_ids = [
+    [200, 200, 200],
+    [200, 200]
+]
+```
+我们需要通过 Padding 操作，在短序列的结尾填充特殊的 padding token   
+
+### Attention Mask
+```
+sequence1_ids = [[200, 200, 200]]
+sequence2_ids = [[200, 200]]
+batched_ids = [
+    [200, 200, 200],
+    [200, 200, tokenizer.pad_token_id],
+]
+
+print(model(torch.tensor(sequence1_ids)).logits)
+print(model(torch.tensor(sequence2_ids)).logits)
+print(model(torch.tensor(batched_ids)).logits)
+tensor([[ 1.5694, -1.3895]], grad_fn=<AddmmBackward0>)
+tensor([[ 0.5803, -0.4125]], grad_fn=<AddmmBackward0>)
+tensor([[ 1.5694, -1.3895],
+        [ 1.3374, -1.2163]], grad_fn=<AddmmBackward0>)
+```
+使用 padding token 填充的序列的结果与其单独送入模型时不同   
+模型默认会编码输入序列中的所有 token 以建模完整的上下文，因此这里会将填充的 padding token 也一同编码进去，从而生成不同的语义表示。   
+```
+sequence1_ids = [[200, 200, 200]]
+sequence2_ids = [[200, 200]]
+batched_ids = [
+    [200, 200, 200],
+    [200, 200, tokenizer.pad_token_id],
+]
+batched_attention_masks = [
+    [1, 1, 1],
+    [1, 1, 0],
+]
+
+print(model(torch.tensor(sequence1_ids)).logits)
+print(model(torch.tensor(sequence2_ids)).logits)
+outputs = model(
+    torch.tensor(batched_ids), 
+    attention_mask=torch.tensor(batched_attention_masks))
+print(outputs.logits)
+tensor([[ 1.5694, -1.3895]], grad_fn=<AddmmBackward0>)
+tensor([[ 0.5803, -0.4125]], grad_fn=<AddmmBackward0>)
+tensor([[ 1.5694, -1.3895],
+        [ 0.5803, -0.4125]], grad_fn=<AddmmBackward0>)
+```
+在实际使用时，我们应该直接使用分词器对文本进行处理，它不仅会向 token 序列中添加模型需要的特殊字符（例如 cls,sep
+），还会自动生成对应的 Attention Mask。
+
+目前大部分 Transformer 模型只能接受长度不超过 512 或 1024 的 token 序列，因此对于长序列，有以下三种处理方法：
+
+使用一个支持长文的 Transformer 模型，例如 Longformer 和 LED（最大长度 4096）；   
+设定最大长度 max_sequence_length 以截断输入序列：sequence = sequence[:max_sequence_length]。   
+将长文切片为短文本块 (chunk)，然后分别对每一个 chunk 编码。在后面的快速分词器中，我们会详细介绍。   
+
+### 编码句子对   
+此时分词器会使用 se[]
+ token 拼接两个句子，输出形式为“cls 1 sep 2 sep
+”的 token 序列，这也是 BERT 模型预期的“句子对”输入格式。
+```
+inputs = tokenizer("This is the first sentence.", "This is the second one.")
+print(inputs)
+
+tokens = tokenizer.convert_ids_to_tokens(inputs["input_ids"])
+print(tokens)
+{'input_ids': [101, 2023, 2003, 1996, 2034, 6251, 1012, 102, 2023, 2003, 1996, 2117, 2028, 1012, 102], 
+ 'token_type_ids': [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1], 
+ 'attention_mask': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]}
+
+['[CLS]', 'this', 'is', 'the', 'first', 'sentence', '.', '[SEP]', 'this', 'is', 'the', 'second', 'one', '.', '[SEP]']
+```
+如果我们选择其他模型，分词器的输出不一定会包含 token_type_ids 项（例如 DistilBERT 模型）。分词器只需保证输出格式与模型预训练时的输入一致即可。
+
+句子对例子，三条，每条两句
+```
+from transformers import AutoTokenizer
+
+checkpoint = "bert-base-uncased"
+tokenizer = AutoTokenizer.from_pretrained(checkpoint)
+
+sentence1_list = ["First sentence.", "This is the second sentence.", "Third one."]
+sentence2_list = ["First sentence is short.", "The second sentence is very very very long.", "ok."]
+
+tokens = tokenizer(
+    sentence1_list,
+    sentence2_list,
+    padding=True,
+    truncation=True,
+    return_tensors="pt"
+)
+print(tokens)
+print(tokens['input_ids'].shape)
+
+
+{'input_ids': tensor([[ 101, 2034, 6251, 1012,  102, 2034, 6251, 2003, 2460, 1012,  102,    0,
+            0,    0,    0,    0,    0,    0],
+        [ 101, 2023, 2003, 1996, 2117, 6251, 1012,  102, 1996, 2117, 6251, 2003,
+         2200, 2200, 2200, 2146, 1012,  102],
+        [ 101, 2353, 2028, 1012,  102, 7929, 1012,  102,    0,    0,    0,    0,
+            0,    0,    0,    0,    0,    0]]), 'token_type_ids': tensor([[0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]), 'attention_mask': tensor([[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]])}
+torch.Size([3, 18])
+
+```
+
+
+句子对例子，三条，每条三句   
+没有意义，被当成是标签  
+```
+from transformers import AutoTokenizer
+
+checkpoint = "bert-base-uncased"
+tokenizer = AutoTokenizer.from_pretrained(checkpoint)
+
+sentence1_list = ["First sentence.", "This is the second sentence.", "Third one."]
+sentence2_list = ["First sentence is short.", "The second sentence is very very very long.", "ok."]
+sentence3_list = ["First sentence is short.", "The second sentence is very very very long.", "ok."]
+tokens = tokenizer(
+    sentence1_list,
+    sentence2_list,
+    sentence3_list,  被误认为是标签
+    padding=True,
+    truncation=True,
+    return_tensors="pt"
+)
+print(tokens)
+print(tokens['input_ids'].shape)
+
+
+
+{'input_ids': tensor([[ 101, 2034, 6251, 1012,  102, 2034, 6251, 2003, 2460, 1012,  102,    0,
+            0,    0,    0,    0,    0,    0],
+        [ 101, 2023, 2003, 1996, 2117, 6251, 1012,  102, 1996, 2117, 6251, 2003,
+         2200, 2200, 2200, 2146, 1012,  102],
+        [ 101, 2353, 2028, 1012,  102, 7929, 1012,  102,    0,    0,    0,    0,
+            0,    0,    0,    0,    0,    0]]), 'token_type_ids': tensor([[0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]), 'attention_mask': tensor([[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]), 'labels': tensor([[ 101, 2034, 6251, 2003, 2460, 1012,  102,    0,    0,    0,    0],
+        [ 101, 1996, 2117, 6251, 2003, 2200, 2200, 2200, 2146, 1012,  102],
+        [ 101, 7929, 1012,  102,    0,    0,    0,    0,    0,    0,    0]])}被误认为是标签
+torch.Size([3, 18])
+
+```
+
+三个句子  
+token_type_ids不做区分
+```
+inputs = tokenizer("This is the first sentence. [SEP] This is the second one. [SEP] This is the third one.")
+print(inputs)
+
+tokens = tokenizer.convert_ids_to_tokens(inputs["input_ids"])
+print(tokens)
+
+
+{'input_ids': [101, 2023, 2003, 1996, 2034, 6251, 1012, 102, 2023, 2003, 1996, 2117, 2028, 1012, 102, 2023, 2003, 1996, 2353, 2028, 1012, 102], 'token_type_ids': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 'attention_mask': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]}
+['[CLS]', 'this', 'is', 'the', 'first', 'sentence', '.', '[SEP]', 'this', 'is', 'the', 'second', 'one', '.', '[SEP]', 'this', 'is', 'the', 'third', 'one', '.', '[SEP]']
+
+
+```
+
+### 添加新 token     
+一些领域的专业词汇，例如使用多个词语的缩写拼接而成的医学术语，同样也不在模型的词表中，因此也会出现上面的问题。此时我们就需要将这些新 token 添加到模型的词表中    
+向词表中添加新 token 后，必须重置模型 embedding 矩阵的大小，也就是向矩阵中添加新 token 对应的 embedding，这样模型才可以正常工作，将 token 映射到对应的 embedding。  
+model.resize_token_embeddings(len(tokenizer))   
+```
+vocabulary size: 30522
+After we add 2 tokens
+vocabulary size: 30524
+torch.Size([30524, 768])
+```
+在默认情况下，新添加 token 的 embedding 是随机初始化的。   
+Token embedding 初始化   
+如果有充分的语料对模型进行微调或者继续预训练，那么将新添加 token 初始化为随机向量没什么问题。但是如果训练语料较少，甚至是只有很少语料的 few-shot learning 场景下，这种做法就存在问题。研究表明，在训练数据不够多的情况下，这些新添加 token 的 embedding 只会在初始值附近小幅波动。换句话说，即使经过训练，它们的值事实上还是随机的。?????   
+直接赋值   
+初始化为已有 token 的值   
+
+tokenize完的下一步就是将token的one-hot编码转换成更dense的embedding编码。  
+在ELMo之前的模型中，embedding模型很多是单独训练的，而ELMo之后则爆发了直接将embedding层和上面的语言模型层共同训练的浪潮（ELMo的全名就是Embeddings from Language Model）。   
+
+
+
+
+
+### clip 分词器
+
+
+### GPT 分词器
+GPT族：Byte-Pair Encoding (BPE)   
+
+```
+1. 统计输入中所有出现的单词并在每个单词后加一个单词结束符</w> -> ['hello</w>': 6, 'world</w>': 8, 'peace</w>': 2]
+2. 将所有单词拆成单字 -> {'h': 6, 'e': 10, 'l': 20, 'o': 14, 'w': 8, 'r': 8, 'd': 8, 'p': 2, 'a': 2, 'c': 2, '</w>': 3}
+3. 合并最频繁出现的单字(l, o) -> {'h': 6, 'e': 10, 'lo': 14, 'l': 6, 'w': 8, 'r': 8, 'd': 8, 'p': 2, 'a': 2, 'c': 2, '</w>': 3}
+4. 合并最频繁出现的单字(lo, e) -> {'h': 6, 'lo': 4, 'loe': 10, 'l': 6, 'w': 8, 'r': 8, 'd': 8, 'p': 2, 'a': 2, 'c': 2, '</w>': 3}
+5. 反复迭代直到满足停止条件
+显然，这是一种贪婪的算法。在上面的例子中，'loe'这样的子词貌似不会经常出现，但是当语料库很大的时候，诸如est，ist，sion，tion这样的特征会很清晰地显示出来。
+
+在获得子词词表后，就可以将句子分割成子词了，算法见下面的例子（引自文章）：
+
+# 给定单词序列
+["the</w>", "highest</w>", "mountain</w>"]
+
+# 从一个很大的corpus中排好序的subword表如下
+# 长度 6         5           4        4         4       4          2
+["errrr</w>", "tain</w>", "moun", "est</w>", "high", "the</w>", "a</w>"]
+
+# 迭代结果
+"the</w>" -> ["the</w>"]
+"highest</w>" -> ["high", "est</w>"]
+"mountain</w>" -> ["moun", "tain</w>"]
+
+```

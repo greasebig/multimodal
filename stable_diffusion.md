@@ -1093,8 +1093,14 @@ Stable diffusion model 不足之处：文章中指出，之所以Stable Diffusio
 ![Alt text](assets_picture/stable_diffusion/image-100.png)   
 在优化过程中，首先固定SD中的参数，只优化T2I-Adapt。优化过程与SD相似：   
 
+
+#### GLIGEN (Grounded Language-to-Image Generation)  
+如果给出了输入图像，可以在边界框定义的区域插入由文本描述的对象。否则，它将生成由标题/提示描述的图像，并在边界框定义的区域插入由文本描述的对象。它在 COCO2014D 和 COCO2014CD 数据集上进行训练，并且该模型使用冻结的 CLIP ViT-L/14 文本编码器来根据接地输入调节自身。   
+
 ## SDXL 1.0 （July 26, 2023）
 SDXL 0.9 June 22, 2023   
+
+![Alt text](assets_picture/stable_diffusion/image-131.png)  
 
 SDXL和之前的版本一样也是采用latent diffusion架构，但SDXL相比之前的版本SD 1.x和SD 2.x有明显的提升，SDXL的性能始终超过Stable Diffusion以前所有的版本，比如SD 1.5 、SD2.1。  
 可以看到SDXL无论是在文本理解还是在生成图像质量上，相比之前的版本均有比较大的提升。SDXL性能的提升主要归功于以下几点的改进：  
@@ -1321,6 +1327,7 @@ refiner model和base model在结构上有一定的不同，其UNet的结构如�
 第一个stage我们训练了80小时，第二个stage训练了100小时，两个stage都是用了8 x A100。
 
 ## 动手QA
+### 训练中文文生图
 ### 1.encode过程 为什么在stable diffusion中输入图像(3,512,512)经过vae.encoder后变成(4,64,64)，为什么第一维多了一个?   
 bs=4  
 输入图像(4,3,512,512)
@@ -1761,7 +1768,10 @@ t_emb = self.time_proj(timesteps)
         emb = self.time_embedding(t_emb, timestep_cond)
       (4,1280)
 ```
-和上面一样配置Transformer2DModel+downblock（两个resnetblock）  
+mid和上面down一样配置Transformer2DModel+downblock（两个resnetblock）   
+先过一个resnets   
+再过一个attn一个resnets    
+（resnets处理时间嵌入，attn处理文本嵌入）
 ```
 hidden_states = self.resnets[0](hidden_states, temb, scale=lora_scale)
         for attn, resnet in zip(self.attentions, self.resnets[1:]):
@@ -1889,8 +1899,297 @@ parser.add_argument(
 
 
 ```
-### 如何证明成功冻结权重不训练？
+### 冻结权重
+accelerate无法同时加载多个模型的梯度进行更新回传，一次一个去训练   
 
+### lora推理
+pipe.unet.load_attn_procs(lora_path)   
+lora模型大小3Mb,训练显存6Gb      
+训练100轮五小时，loss震荡大，难以拟合数据集   
+数据集采用pokeman图文对八百条   
+
+lora模型在downblock.midblock,upblocks的crossattnblock中的两个attn中生效，包括toqkv,toout,都是线性映射，其中各自含有up和down的weights,bias     
+```
+LoRACompatibleLinear(in_features=320, out_features=320, bias=False)
+变成以下两个矩阵相乘，降秩
+通过rank=4构造
+lora = LoRALinearLayer(
+                            attn_processor.in_features,
+                            attn_processor.out_features,
+                            rank,
+                            mapped_network_alphas.get(key),
+                        )
+
+
+LoRALinearLayer(
+  (down): Linear(in_features=320, out_features=4, bias=False)
+  (up): Linear(in_features=4, out_features=320, bias=False)
+)
+``` 
+推理流程  
+prompt和negative prompt经过tokenizer和embedding      
+clip tokenizer和bert tokenizer有区别吗？？不同分词策略会有多大影响？？？    
+```
+if self.do_classifier_free_guidance:
+            prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
+
+prompt_embeds
+torch.Size([2, 52, 768])
+```
+根据50步，线性从1000步抽样50次步数，做timesteps    
+timestep的作用在于去计算alpha，beta，求上一步的状态时计算出噪声加入强度   
+
+Denoising loop：    
+- latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents   
+如果有classifier free guidance，latant一起concat送入,后面再减去    
+torch.Size([2, 4, 64, 64])    
+- predict the noise residual  
+```
+预测阶段
+                noise_pred = self.unet(
+                    latent_model_input,
+                    t,
+                    encoder_hidden_states=prompt_embeds,
+ ```
+ - noise_pred torch.Size([2, 4, 64, 64])  
+ 为什么通过latent以及timestep,经过unet能估计出噪声值？？
+ unet训练方法是加入timesteps,   
+ ```
+ 训练阶段
+ 对unet预测出的噪声和真实噪声计算均方误差损失，反向回传
+target = noise
+model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+
+loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+ ```  
+- unet被训练为可以从noisy_latents空间中预测出噪声的一个模型，同时受到文本embed影响，      
+推理阶段，根据初始噪声，推理时间步和文本embed，预测噪声，根据反向计算上一状态公式，结合初始噪声和预测噪声，逐步计算上一个状态    
+
+```
+if self.do_classifier_free_guidance:
+                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                    noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_text - noise_pred_uncond)
+                
+guidance_scale大于1执行，7.5
+
+负向提示词和没有提示词（自由发挥）的作用一样   
+这里没有提示词，为空，['']一样做embed
+guidance_scale越大，正向提示词影响越小   
+```    
+- compute the previous noisy sample x_t -> x_t-1    
+latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]    
+ 
+```
+model_output: noise_pred
+sample: latents
+
+
+
+def step(
+        self,
+        model_output: torch.FloatTensor,noise_pred
+        timestep: int,
+        sample: torch.FloatTensor,latents
+        return_dict: bool = True,
+
+
+    return self.step_plms(model_output=model_output, timestep=timestep, sample=sample,
+
+prev_sample = self._get_prev_sample(sample, timestep--981, prev_timestep--961, model_output)
+
+ def _get_prev_sample(self, sample, timestep, prev_timestep, model_output):
+
+
+if self.config.prediction_type == "v_prediction":
+            model_output = (alpha_prod_t**0.5) * model_output + (beta_prod_t**0.5) * sample
+    这里没有采用，不做处理
+
+这里是prediction_type = "epsilon"
+```
+pndm  
+![Alt text](assets_picture/stable_diffusion/image-129.png)  
+![Alt text](assets_picture/stable_diffusion/image-128.png)   
+ddpm   
+![Alt text](assets_picture/stable_diffusion/image-130.png)  
+ddim   
+![Alt text](assets_picture/stable_diffusion/image-110.png)   
+
+lora推理关键：   
+out = super().forward(hidden_states) + (scale * self.lora_layer(hidden_states))    
+在transformer中每一个attn的toqkv以及计算完注意力后的to_out      
+
+mid和上面down一样配置Transformer2DModel+downblock（两个resnetblock）   
+先过一个resnets   
+再过一个attn一个resnets    
+（resnets处理时间嵌入，attn处理文本嵌入）   
+
+可以使用PEFT包rescale   
+
+image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0]    
+torch.Size([1, 4, 64, 64])   
+Conv2d(4, 4, kernel_size=(1, 1), stride=(1, 1))   
+decode (含有mid和up)   
+- Conv2d(4, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))   
+```
+{
+  "_class_name": "AutoencoderKL",
+  "_diffusers_version": "0.3.0",
+  "_name_or_path": "./finetune_taiyi_v0.20/vae",
+  "act_fn": "silu",
+  "block_out_channels": [
+    128,
+    256,
+    512,
+    512
+  ],
+  "down_block_types": [输入512
+    "DownEncoderBlock2D",输出256
+    "DownEncoderBlock2D",输出128
+    "DownEncoderBlock2D",输出64
+    "DownEncoderBlock2D"输出64，最后一个没有下采样
+  ],
+  "in_channels": 3,
+  "latent_channels": 4,
+  "layers_per_block": 2,
+  "out_channels": 3,
+  "sample_size": 512,
+  "scaling_factor": 0.18215,
+  "up_block_types": [
+    "UpDecoderBlock2D",
+    "UpDecoderBlock2D",
+    "UpDecoderBlock2D",
+    "UpDecoderBlock2D"
+  ]
+}
+
+```
+- 进入mid_block   
+unetmidblock   
+```
+hidden_states = self.resnets[0](hidden_states, temb)
+        for attn, resnet in zip(self.attentions, self.resnets[1:]):
+            if attn is not None:
+                hidden_states = attn(hidden_states, temb=temb)
+            hidden_states = resnet(hidden_states, temb)
+```
+- torch.Size([1, 512, 64, 64])  
+- up_blocks含四个UpDecoderBlock2D      
+讲一个   
+三个ResnetBlock2D，每个两个conv   
+通过一个conv上采样   
+```
+for resnet in self.resnets:
+            hidden_states = resnet(hidden_states, temb=temb, scale=scale)
+
+        if self.upsamplers is not None:
+            for upsampler in self.upsamplers:
+                hidden_states = upsampler(hidden_states)
+```
+- 完成四个UpDecoderBlock2D结束up_blocks   
+torch.Size([1, 128, 512, 512])   
+- conv_out，即1*1卷积   
+torch.Size([1, 3, 512, 512])。完成decoder   
+- run_safety_checker  
+torch.Size([1, 3, 512, 512])   
+feature_extractor提取torch.Size([1, 3, 224, 224]),resize   
+使用clipvisionmodel,torch.Size([1, 3, 224, 224])判断nsfw     
+pt_to_numpy   
+numpy_to_pil
+
+#### 大模型参数高效微调PEFT
+随着Large Language Model(LLM)的横空出世，网络模型对常见问题的解答有了很强的泛化能力。但是如果将LLM应用到特定专业场景，如律师、医生，却仍表现的不尽如人意。即使可以使用few-shot learning或finetuning的技术进行迭代更新，但是模型参数的更新需要昂贵的机器费用。    
+学术界大量研究人员开始从事高效Finetuning的工作，称作Effective Parameter Fine-Tuning(PEFT)。本次从方法构造的区别，可以将现有的PEFT方法分为Adapter、LoRA、Prefix Learning和Soft Prompt。   
+试验表明，当每个特定任务微调时，只训练模型的一小部分参数，也能得到不错的效果。   
+
+Adapter方法    
+Adapter应用在Transformer的结构中，在Multi-headed attention和Feed-forward网路层后紧接Adapter子模块，模型训练的时候冻结Transformer的参数，仅更新Adapter的参数。   
+
+
+Adapter训练参数之占模型的5%，LoRa、Prefix Tuning和Soft Prompt的训练参数甚至小于0.1%。
+
+
+#### bert tokenizer   
+先采用basic_tokenizer.tokenize根据空格等分词    
+具体是去掉一些字符，以及中文判断及相关处理，规范化等，unicode，判断特殊字符，移除重音符号，处理标点符号     
+['a', 'red', 'and', 'white', 'ball', 'with', 'an', 'angry', 'look', 'on', 'its', 'face']     
+
+然后WordpieceTokenizer，找出子词  
+```
+for token in whitespace_tokenize(text):
+            chars = list(token)
+            if len(chars) > self.max_input_chars_per_word:
+                output_tokens.append(self.unk_token)
+                continue
+
+            is_bad = False
+            start = 0
+            sub_tokens = []
+            while start < len(chars):
+                end = len(chars)
+                cur_substr = None
+                while start < end:
+                    substr = "".join(chars[start:end]) 不在就从后面逐渐减去一个再判断
+                    if start > 0:
+                        substr = "##" + substr 对于子词后面部分被切割的，都加上##示意
+                    if substr in self.vocab: 对每个前面划分的子词判断是否在vocab表里，这个bert有两万多个，不在就从后面逐渐减去一个再判断
+                        cur_substr = substr
+                        break
+                    end -= 1 不在就从后面逐渐减去一个再判断
+                if cur_substr is None:
+                    is_bad = True
+                    break
+                sub_tokens.append(cur_substr)
+                start = end
+
+
+['a', 'red', 'and', 'white', 'ball', 'with', 'an', 'an', '##g', '##ry', 'look', 'on', 'its', 'face']
+```
+
+#### clip_tokenizer
+先做特殊字符处理判断  
+再进clip_tokenizer,使用bpe(openai出品，gpt)   
+继续做特殊字符处理   
+
+clip text_encoder对token处理:     
+- torch.Size([1, 77])   
+hidden_states = self.embeddings(input_ids=input_ids, position_ids=position_ids)   
+```
+CLIPTextEmbeddings(
+  (token_embedding): Embedding(49408, 768)
+  (position_embedding): Embedding(77, 768)
+)
+都采用训练好的参数做embed
+embeddings = inputs_embeds + position_embeddings
+```
+- causal_attention_mask   
+Creates a causal 4D mask of shape `(batch_size, 1, query_length, key_value_length)`   
+三角，下0上负极限  
+```
+encoder_outputs = self.encoder(
+            inputs_embeds=hidden_states,
+            attention_mask=attention_mask,
+            causal_attention_mask=causal_attention_mask,
+```
+- clip encoder含12个CLIPEncoderLayer。
+```
+每一个有self_attn（channel都是768）,CLIPMLP(  
+  QuickGELUActivation( Applies GELU approximation that is fast but somewhat inaccurate,return input * torch.sigmoid(1.702 * input))
+
+  和两个升秩linear,  
+  即(fc1): Linear(in_features=768, out_features=3072, bias=True)  
+      (fc2): Linear(in_features=3072, out_features=768, bias=True)  
+      )
+- attn有12头，并且使用casual mask对attn_weights即qk的注意力分数，进行mask  
+
+# apply the causal_attention_mask first
+# then attention_mask if have
+attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len) + causal_attention_mask
+            attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
+```
+ 
+
+
+### 如何替换text_encoder  
 
 
 
@@ -2093,8 +2392,9 @@ Gradio、Streamlit 和 Dash
 
 ## 缺点
 运行的代码没有明确输入输出导向，阶段目标和总体目标，要解决什么事情，输出的评价指标的具体记录没有。    
-没有用最新的模型去跑。    
-bert怎么装上去的其实不明白   
+bert怎么装上去的其实不明白    
+美学评分数据集有多少张，7分以上占比多少？不如直接拿2.1来接着训练，效果还好。没有用最新的模型去跑。   
+不同tokenizer怎么选型   
 
 
 ## 结尾
