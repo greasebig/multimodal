@@ -1064,7 +1064,9 @@ LoRA大幅降低了SD模型训练时的显存占用，因为并不优化主模�
 与ControlNet同期的工作还有腾讯的T2I-Adapter以及阿里的composer-page：
 
 #### ControlNet 
-通过添加额外条件来控制扩散模型。  
+通过添加额外条件来控制扩散模型。   
+具体怎么做？是借助交叉注意力吗，交叉注意力是在原模型计算，还是新的拷贝模型上计算？？？    
+
 ![Alt text](assets_picture/stable_diffusion/image-45.png)   
 “c”是我们要添加到神经网络中的一个额外条件。zero convolution”是一个1×1卷积层，权重和偏差都初始化为零。
 ControlNet将神经网络权重复制到一个锁定（locked）副本和一个可训练（trainable）副本。  可训练副本将会学习新加入的条件，而锁定副本将会保留原有的模型，得益于此在进行小数据集训练时不会破坏原有的扩散模型。
@@ -2190,7 +2192,8 @@ attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len) + causal
 
 
 ### 如何替换text_encoder  
-
+直接换blip2缺封神导入  
+直接sd21换bert出现进unet的attn后计算交叉注意力会有变量维度不一样，无法运算   
 
 
 ## 视频基于关键字/图片检索片段

@@ -755,14 +755,15 @@ tokenize完的下一步就是将token的one-hot编码转换成更dense的embeddi
 在ELMo之前的模型中，embedding模型很多是单独训练的，而ELMo之后则爆发了直接将embedding层和上面的语言模型层共同训练的浪潮（ELMo的全名就是Embeddings from Language Model）。   
 
 
+ 
 
 
 
-### clip 分词器
-
-
-### GPT 分词器
-GPT族：Byte-Pair Encoding (BPE)   
+### GPT clip 分词器
+GPT族：Byte-Pair Encoding (BPE)    
+bpe     
+   
+BPE最初是用于文本压缩的算法，当前是最常见tokenizer的编码方法，用于 GPT (OpenAI) 和 Bert (Google) 的 Pre-training Model。  
 
 ```
 1. 统计输入中所有出现的单词并在每个单词后加一个单词结束符</w> -> ['hello</w>': 6, 'world</w>': 8, 'peace</w>': 2]
@@ -787,3 +788,93 @@ GPT族：Byte-Pair Encoding (BPE)
 "mountain</w>" -> ["moun", "tain</w>"]
 
 ```
+
+
+
+#### bpe和wordpiece区别？？？
+用于将词汇分割成更小的单元，从而能够更灵活地处理未登录词（out-of-vocabulary words）和稀有词汇   
+（2）BPE与Wordpiece都是首先初始化一个小词表，再根据一定准则将不同的子词合并。词表由小变大*  
+（3）BPE与Wordpiece的最大区别在于，如何选择两个子词进行合并：BPE选择频数最高的相邻子词合并，而WordPiece选择能够提升语言模型概率最大的相邻子词加入词表。  
+（4）其实还有一个Subword算法，ULM（Unigram Language Model），与前两种方法不同的是，该方法先初始化一个大词表，再根据评估准则不断丢弃词表，直到满足限定条件为止，词表由大变小。  
+
+##### BPE 
+全称为字节对编码，是一种数据压缩方法，通过迭代地合并最频繁出现的字符或字符序列来实现分词目的。
+
+算法步骤：
+
+1. 准备足够大的训练语料
+2. 确定期望的subword词表大小
+3. 将单词拆分为字符序列并在末尾添加后缀“ </ w>”，统计单词频率。本阶段的subword的粒度是字符。例如单词“ low”的频率为5，那么我们将其改写为“ l o w </ w>”：5
+4. 统计每一个连续字节对的出现频率，选择最高频者合并成新的subword
+5. 重复第4步直到达到第2步设定的subword词表大小或下一个最高频的字节对出现频率为1   
+
+停止符"</w>"的意义在于表示subword是词后缀。举例来说："st"字词不加"</w>"可以出现在词首如"st ar"，加了"</w>"表明改字词位于词尾，如"wide st</w>"，二者意义截然不同。    
+
+首先让我们看看单个单词出现的频率，单词出现频率统计如下：   
+![Alt text](assets_picture/conv/image-29.png)   
+根据上图开始第一次迭代，由上图可以看出最频繁的字符对是“ d ”和“ e ”，共有3+2+1+1=7次。将字符对“ d ”和“ e ”组合起来创建第一个子词标记（不是单个字符）“ de ”。符合上述合并后词表可能出现3种变化中的第一条，增加合并后的新字词“ de ”，同时原来的2个子词还保留“ d ”和“ e ”也会保留下来(由于build和the两个单词)。在第一次迭代完成后的字符对词频更新为如下：   
+![Alt text](assets_picture/conv/image-30.png)    
+不断迭代，最终达到步骤二中期望的subword词表大小。
+
+举个例子，我们假设在预标记化之后，已经确定了以下单词集（包括它们的频率）：
+
+Copied
+("hug", 10), ("pug", 5), ("pun", 12), ("bun", 4), ("hugs", 5)   
+
+因此，基本词汇是 ["b", "g", "h", "n", "p", "s", "u"] 。将所有单词拆分为基本词汇表的符号，我们得到：  
+ Splitting all words into symbols of the base vocabulary  
+Copied
+("h" "u" "g", 10), ("p" "u" "g", 5), ("p" "u" "n", 12), ("b" "u" "n", 4), ("h" "u" "g" "s", 5)
+
+然后，BPE 计算每个可能的符号对symbol pair 的频率，并选择出现最频繁的符号对。在上面的示例中， "h" 后跟 "u" 出现了 10 + 5 = 15 次（ "hug" 出现 10 次，出现 10 次； "hugs" 出现 5 次，出现 5 次）。然而，最常见的符号对是 "u"  "g" ，总共出现 10 + 5 + 5 = 20 次。因此，分词器学习的第一个合并规则是将所有 "u" 符号后跟 "g" 符号分组在一起。接下来， "ug" 被添加到词汇表中。那么单词集就变成了
+
+Copied
+("h" "ug", 10), ("p" "ug", 5), ("p" "u" "n", 12), ("b" "u" "n", 4), ("h" "ug" "s", 5)
+
+然后，BPE 识别下一个最常见的符号对symbol pair。 "u" 后面跟着 "n" ，出现了 16 次。 "u" 、 "n" 合并到 "un" 并添加到词汇表中。下一个最常见的符号对是 "h"  "ug" ，出现了 15 次。再次合并该对，并且可以将 "hug" 添加到词汇表中。
+
+在这个阶段，词汇表是 ["b", "g", "h", "n", "p", "s", "u", "ug", "un", "hug"] ，我们的独特单词集表示为
+
+Copied
+("hug", 10), ("p" "ug", 5), ("p" "un", 12), ("b" "un", 4), ("hug" "s", 5)
+
+假设字节对编码训练将在此时停止，则学习的合并规则将应用于新单词（只要这些新单词不包含不在基本词汇表中的符号）。例如，单词 "bug" 将被标记为 ["b", "ug"] ，但 "mug" 将被标记为 ["unk>", "ug"] ，因为符号 "m" 不在基本词汇表中。一般来说，诸如 "m" 之类的单个字母不会被 "unk>" 符号替换，因为训练数据通常包含每个字母至少出现一次的情况，但对于表情符号等非常特殊的字符来说，这种情况很可能发生。
+
+如前所述，词汇量大小，即基本词汇量+合并次数，是一个需要选择的超参数。例如，GPT 的词汇量为 40,478，因为它们有 478 个基本字符，并在 40,000 次合并后选择停止训练。
+
+包含所有可能的基本字符base characters的基本词汇表base vocabulary可能会非常大，例如：所有 unicode 字符unicode characters都被视为基本字符。为了拥有更好的基础词汇base vocabulary，GPT-2 使用字节bytes作为基础词汇，这是一个巧妙的技巧，强制基础词汇base vocabulary的大小为 256，同时确保每个基础字符都包含在词汇中。通过一些处理标点符号的附加规则，GPT2 的分词器可以对每个文本进行分词，而不需要 unk> symbol符号。 GPT-2 的词汇量为 50,257，对应于 256 字节的基本标记256 bytes base tokens、特殊的文本结束标记以及通过 50,000 次合并学习的符号。
+
+
+
+
+##### WordPiece
+WordPiece算法可以看作是BPE的变种。不同点在于，WordPiece基于概率生成新的subword而不是下一最高频字节对。
+
+与 BPE 非常相似。 WordPiece 首先初始化词汇表the vocabulary以包含训练数据中存在的每个字符character ，并逐步学习给定数量的合并规则。与 BPE 不同，WordPiece 不会选择最常见的符号对most frequent symbol pair，而是选择在添加到词汇表后使训练数据的可能性最大化的符号对symbol pair, that maximizes the likelihood of the training data once added to the vocabulary。
+
+参考前面的例子，最大化训练数据的似然相当于​​找到一个符号对，其概率除以其第一个符号随后其第二个符号的概率是所有符号对symbol pairs中最大的。例如。仅当 "ug" 除以 "u" 、 "g" 的概率大于任何其他符号对时， "u" 和后跟 "g" 才会被合并。直观上，WordPiece 与 BPE 略有不同，它通过合并两个符号来评估其损失，以确保其值得。    
+直观上，WordPiece 与 BPE 略有不同，它通过合并两个符号by merging two symbols来评估其损失，以确保其值得。
+
+算法步骤
+
+1. 准备足够大的训练语料
+
+2. 确定期望的subword词表大小
+
+3. 将单词拆分成字符序列
+
+4. 基于第3步数据训练语言模型
+
+5. 从所有可能的subword单元中选择加入语言模型后能最大程度地增加训练数据概率的单元作为新的单元
+
+6. 重复第5步直到达到第2步设定的subword词表大小或概率增量低于某一阈值    
+
+##### SentencePiece
+到目前为止描述的所有标记化算法都存在相同的问题：假设输入文本使用空格来分隔单词。   
+然而，并非所有语言都使用空格来分隔单词。一种可能的解决方案是使用特定于语言的预标记器language specific pre-tokenizers，例如XLM 使用特定的中文、日文和泰文预分词器）。   
+为了更普遍地解决这个问题SentencePiece: A simple and language independent subword tokenizer and detokenizer for Neural Text Processing (Kudo et al., 2018) ，SentencePiece：用于神经文本处理的简单且与语言无关的子词分词器和去分词器（Kudo et al., 2018）将输入视为原始输入流，从而包括要使用的字符集中的空格including the space in the set of characters to use。然后，它使用 BPE 或一元unigram 算法来构建适当的词汇表。   
+
+例如，XLNetTokenizer 使用 SentencePiece，这也是前面示例中 "▁" 字符包含在词汇表中的原因。使用 SentencePiece 进行解码非常简单，因为所有标记都可以连接起来，并且 "▁" 被空格替换。
+
+##### Unigram
+Unigram 是 Subword Regularization: Improving Neural Network Translation Models with Multiple Subword Candidates (Kudo, 2018) 中介绍的一种子词标记化算法。与 BPE 或 WordPiece 相比，Unigram 将其基本词汇表初始化为大量符号，并逐步修剪每个符号以获得更小的词汇表。例如，基本词汇表可以对应于所有预先标记化的单词和最常见的子串。 Unigram 不直接用于 Transformer 中的任何模型，但它与 SentencePiece 结合使用。
