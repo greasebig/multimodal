@@ -695,7 +695,13 @@ guidance_scale为1，3，5，7，9和11下生成的图像对比，可以看到�
 
 #### CFG
 
-另外一个比较容易忽略的参数是negative_prompt，这个参数和CFG有关，前面说过，SD采用了CFG来提升生成图像的质量。？？？？？如何有关？？？  
+另外一个比较容易忽略的参数是negative_prompt，这个参数和CFG有关，前面说过，SD采用了CFG来提升生成图像的质量   
+
+每次对unet预测的噪声执行cfg
+noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)     
+#计算上一步的noisy latents：x_t -> x_t-1   
+latents = noise_scheduler.step(noise_pred, t, latents).prev_sample   
+
 这里的negative_prompt便是无条件扩散模型的text输入，前面说过训练过程中我们将text置为空字符串来实现无条件扩散模型，所以这里：negative_prompt = None = ""。  
 ![Alt text](assets_picture/stable_diffusion/image-13.png)  
 在原有的prompt基础加上了一些描述词，有时候我们称之为“魔咒”，不同的模型可能会有不同的魔咒。其生成的效果就大大提升
@@ -704,13 +710,12 @@ guidance_scale为1，3，5，7，9和11下生成的图像对比，可以看到�
 
 CFG是无需分类器辅助Classifier-Free Guidance的简称。为了理解CFG是什么，我们需要首先了解它的前身，分类器辅助。
 
-分类器辅助
-分类器辅助是在扩散模型Diffusion model中将「图像标签」纳入考虑的一种方式。你可以使用标签来指导扩散过程。例如，标签“猫”将引导逆向扩散Reverse Diffusion 过程生成猫的照片。
-
+分类器辅助   
+分类器辅助是在扩散模型Diffusion model中将「图像标签」纳入考虑的一种方式。你可以使用标签来指导扩散过程。例如，标签“猫”将引导逆向扩散Reverse Diffusion 过程生成猫的照片。   
 ❝分类器辅助尺度是一个参数，用于控制扩散过程应该多大程度上遵循标签。
-❞
-![Alt text](assets_picture/stable_diffusion/image-43.png)  
-分类器指导。左：无引导。中间：小的引导尺度。右图：大引导比例  
+❞   
+![Alt text](assets_picture/stable_diffusion/image-43.png)    
+分类器指导。左：无引导。中间：小的引导尺度。右图：大引导比例    
 在高分类器辅助下，扩散模型Diffusion model生成的图像会偏向极端或明确的示例。如果你要求模型生成一只猫的图像，它将返回一张明确是猫而不是其他东西的图像。 
 分类器辅助尺度控制着辅助的紧密程度。在上面的图中，右侧的采样比中间的采样具有更高的分类器辅助尺度。在实践中，这个尺度值只是对朝着具有该标签数据的漂移项的乘法因子。  
 （CFG）尺度是一个值，用于控制文本提示对扩散过程的影响程度。当该值设为0时，图像生成是无条件的（即忽略了提示）。较高的值将扩散过程引导向提示的方向。 
@@ -2276,7 +2281,14 @@ adaLN-Zero block：采用zero初始化的adaLN，这里是将adaLN的linear层�
 在当前的视频生成模型研究中，普遍采用从头开始训练或增加时间层对文生图模型进行微调的方法。要么是通过插入额外的时间层从预训练的图像模型进行微调（部分或全部）     
 针对2D图像合成训练的潜在扩散模型已经通过插入时间层并在小规模、高质量的视频数据集上微调，转变为生成式视频模型    
 
-### 方法
+### 模型架构
+该模型架构是对潜在扩散模型（LDM）的修改。 LDM 中用于去噪的 UNet 由处理输入图像的高度、宽度和通道的空间 2D 卷积组成。但视频还有另一个维度，那就是时间。   
+![Alt text](assets_picture/stable_diffusion/image-132.png)   
+Image cropped from the paper, “High-resolution video synthesis with latent diffusion models”     
+它引入了 3D 卷积和时间注意层（在上图中以绿色显示）以及潜在扩散模型的现有空间层。 SVD 无需修改就采用了该模型架构。 SVD 最大的贡献是训练阶段和我们接下来将深入研究的 LVD 数据集。   
+
+
+### 论文方法
 论文提出了视频模型三步走策略：   
 1）文生图预训练、（图像模型预训练）  
 在图像模型预训练阶段，使用SD2.1模型在LVD数据集上训练了两个模型  
@@ -2298,14 +2310,47 @@ adaLN-Zero block：采用zero初始化的adaLN，这里是将adaLN的linear层�
 
 我们使用三种不同的合成字幕方法为每个剪辑进行注释：首先，我们使用图像字幕生成器 CoCa对每个剪辑的中间帧进行注释，并使用 "V-BLIP" 获得视频字幕。最后，我们通过对前两个字幕进行基于LLM的总结来生成剪辑的第三个描述。   
 Large Video Dataset (LVD)，包括5.8亿个带注释的视频剪辑对，总计212年的内容。   
+![Alt text](assets_picture/stable_diffusion/image-133.png)    
+对于视频数据管理，他们开发了一个管道，从长视频的初始数据集开始。然后，这些视频通过剪辑检测管道，根据剪辑发生的位置将视频划分为剪辑。生成的剪辑将通过 CoCa 图像字幕模型来为剪辑中的中心帧 the central frame添加字​​幕。这些剪辑还通过 V-BLIP 传递，为整个剪辑添加字幕。最后，使用一些标准的LLM 对这些字幕进行汇总，得出给定剪辑的最终字幕。该数据集的大小为 5.8 亿个剪辑及其字幕。   
+
+他们将该数据集称为大型视频数据集，简称 LVD。
+
 
 所得到的数据集包含可能会降低我们最终视频模型性能的示例，例如运动较少的剪辑、过多的文本存在或总体审美价值较低的剪辑。因此，我们额外使用密集的光流为数据集进行注释，我们以2 FPS计算光流，并通过移除平均光流幅度低于一定阈值的任何视频来过滤掉静态场景。事实上，当考虑LVD的运动分布（见图2，右图）时，通过光流分数，我们确定了其中一个接近静态的剪辑子集。此外，我们还应用光学字符识别来清除包含大量书面文本的剪辑。  
-![Alt text](assets_picture/stable_diffusion/image-125.png)  
+![Alt text](assets_picture/stable_diffusion/image-125.png)     
+
+除了剪切检测管道之外，他们还使用了其他几种过滤方法，例如光流分数、合成字幕、OCR 检测率和美学分数，最终将该数据集缩小到只有 1.52 亿，并将其称为 LVD-F。  
+
+![Alt text](assets_picture/stable_diffusion/image-134.png)   
+光流。对于光流，他们计算剪辑中连续帧（如上所示）之间的光流分数，并消除那些低于阈值的剪辑，该阈值表明剪辑中没有足够的运动。   
+
+![Alt text](assets_picture/stable_diffusion/image-135.png)   
+合成字幕。对合成字幕的需求是给定的数据集太大而无法完全手动添加字幕。因此，他们使用 LLM 模型来合成来自图像和视频字幕系统的字幕。在这个示例序列中，CoCa 图像字幕系统说：“卷尺旁边的地板上有一块木头”。视频字幕系统 V-BLIP 表示：“一个人正在用尺子测量一块木头”。最后，法学硕士将两个标题结合起来，得出了合成标题：“一个人正在使用尺子在卷尺旁边测量地板上的一块木头”。   
+
+![Alt text](assets_picture/stable_diffusion/image-136.png)   
+光学字符识别。由于数据是从互联网上整理的，因此它们很可能有大量文本。例如，上面显示的维基百科图像有几个文本描述，当涉及到视频生成训练时，这些文本描述并没有太大帮助。因此，他们使用 OCR 算法计算文本相对于图像的面积（上图中为 0.102），并消除那些具有较大文本区域的剪辑。
+
+审美得分。最后，美观分数取决于视频剪辑中的图像对注释者的吸引力有多大   
+
+LVD 数据集是他们收集的原始数据集。应用我们刚刚看到的过滤器会导致 LVD-F，数据集中只剩下 1.52 亿个剪辑。他们还对 LVD 数据集进行了随机采样，以获得只有 1000 万个剪辑的数据集子集，并将其称为 LVD-10M。对这些剪辑应用过滤过程后，仅产生 230 万个剪辑，用于不同的实验和消融研究。该数据集的名称为 LVD-10M-F。    
+![Alt text](assets_picture/stable_diffusion/image-137.png)    
+
+
+
 最后，我们使用CLIP嵌入为每个剪辑的第一帧、中间帧和最后一帧进行注释，从中计算审美得分 以及文本-图像相似度。   
 
 为了避免切换和淡入淡出影响到合成视频，我们以级联方式在三个不同的FPS级别上应用了一个切换检测流程。图2左侧提供了切换检测的必要性证据：在应用我们的切换检测流程后，我们获得了显著更多的剪辑（约为4倍），表明未经处理的数据集中的许多视频剪辑包含了超出元数据获得的切换。     
 
 ### 训练
+#### 完整训练
+他们分两步创建基本模型。第一步，他们使用过滤后的数据集在 14 帧上以 256 × 384 的分辨率进行训练，并以 1536 的批量大小训练 150k 次迭代。在微调步骤中，他们将分辨率提高到 320 × 576，但降低了分辨率将批量大小设置为 768，并运行 100k 次迭代。    
+他们使用这个基础为各种应用程序生成视频，例如图像到视频、文本到视频和视频到多视图 3D 输出   
+
+最后，对于图像到视频，输入条件是图像。因此，他们将输入基础模型的文本嵌入替换为条件的 CLIP 图像嵌入。   
+
+为了表明 SVD 具有多功能性并且可以控制摄像机运动，他们用来自稳定视频扩散的时间注意力块取代了摄像机运动 LoRA。
+
+
 #### 阶段 I：图像预训练 
 Stable Diffusion 2.1，以为其提供强大的视觉表示     
 为了分析图像预训练的效果，我们在LVD的一个1000万子集上训练并比较了两个相同的视频模型，详细信息请参见附录D；其中一个使用了预训练的空间权重，另一个没有使用。我们使用人类偏好研究进行了这些模型的比较，如图3a所示，结果清楚地显示了图像预训练模型在质量和提示跟随方面都更受欢迎    
@@ -2361,6 +2406,342 @@ Stable Diffusion 2.1，以为其提供强大的视觉表示
 ![Alt text](assets_picture/stable_diffusion/image-127.png)  
 
 稳定视频扩散提供了一个强大的视频表示，我们可以通过微调视频模型来进行最先进的图像到视频合成以及其他高度相关的应用，如用于相机控制的LoRAs。最后，我们提供了有关视频扩散模型的多视角微调的先驱性研究，并展示了SVD构成了一个强大的3D先验，在多视角合成方面取得了最新的成果，同时仅使用了先前方法计算资源的一小部分。    
+
+### 动手推理
+```
+cond_aug=0.02小量变化
+value_dict["cond_frames"] = image + cond_aug * torch.randn_like(image)
+```  
+
+conditioner_config多个条件嵌入，调用不同的嵌入模型   
+对uc强制将['cond_frames', 'cond_frames_without_noise']两个的emb归零值   
+
+#### 1.嵌入条件  
+cond_frames_without_noise做crossattn-torch.Size([1, 1, 1024])   
+fps_id,'motion_bucket_id'，'cond_aug'做vector，先后按最后一维度做cat-torch.Size([25, 768])   
+'cond_frames'做concat-torch.Size([1, 4, 64, 80])
+
+```
+value_dict["cond_frames_without_noise"] = image
+        value_dict["cond_frames"] = image + cond_aug * torch.randn_like(image)
+
+
+batch['cond_frames_without_noise']=torch.Size([1, 3, 512, 640])
+经过frozenopenclipimagepredictionembedder
+resize成224
+
+x = torch.cat([_expand_token(self.class_embedding, x.shape[0]).to(x.dtype), x], dim=1)
+        # shape = [*, grid ** 2 + 1, width]
+        x = x + self.positional_embedding.to(x.dtype)
+有个奇怪的cat操作，最后又通过pool分离
+
+conv成16*16
+进入VisionTransformer中含有32个ResidualAttentionBlock计算16头自注意力
+
+最终返回torch.Size([1, 1, 1024])
+
+```
+为什么cond_frames和cond_frames_without_noise采用不一样的encoder???   
+其他采用sinusoidal timestep embeddings
+```
+conditioner_config:
+      target: sgm.modules.GeneralConditioner
+      params:
+        emb_models:
+        - is_trainable: False
+          input_key: cond_frames_without_noise
+          target: sgm.modules.encoders.modules.FrozenOpenCLIPImagePredictionEmbedder
+          params:
+            n_cond_frames: 1
+            n_copies: 1
+            open_clip_embedding_config:
+              target: sgm.modules.encoders.modules.FrozenOpenCLIPImageEmbedder
+              params:
+                freeze: True
+
+        - input_key: fps_id
+          is_trainable: False
+          target: sgm.modules.encoders.modules.ConcatTimestepEmbedderND
+          params:
+            outdim: 256
+
+        - input_key: motion_bucket_id
+          is_trainable: False
+          target: sgm.modules.encoders.modules.ConcatTimestepEmbedderND
+          params:
+            outdim: 256
+
+        - input_key: cond_frames
+          is_trainable: False
+          target: sgm.modules.encoders.modules.VideoPredictionEmbedderWithEncoder
+          params:
+            disable_encoder_autocast: True
+            n_cond_frames: 1
+            n_copies: 1
+            is_ae: True
+            encoder_config:
+              target: sgm.models.autoencoder.AutoencoderKLModeOnly
+              params:
+                embed_dim: 4
+                monitor: val/rec_loss
+                ddconfig:
+                  attn_type: vanilla-xformers
+                  double_z: True
+                  z_channels: 4
+                  resolution: 256
+                  in_channels: 3
+                  out_ch: 3
+                  ch: 128
+                  ch_mult: [1, 2, 4, 4]
+                  num_res_blocks: 2
+                  attn_resolutions: []
+                  dropout: 0.0
+                lossconfig:
+                  target: torch.nn.Identity
+
+        - input_key: cond_aug
+          is_trainable: False
+          target: sgm.modules.encoders.modules.ConcatTimestepEmbedderND
+          params:
+            outdim: 256
+
+```
+
+```
+cond_frames
+VideoPredictionEmbedderWithEncoder
+vae结构，resnet+attn
+只采用encoder部分包括down和mid
+DiagonalGaussianRegularizer返回均值
+torch.Size([1, 4, 64, 80])
+
+```
+
+["crossattn", "concat"]，对这两个的第0维度扩展到25（25帧数，fps6,四秒视频）   
+
+c_out是uc,c第0维度的cat   
+```
+
+ def denoiser(input, sigma, c):
+                    return model.denoiser(
+                        model.model, input, sigma, c, **additional_model_inputs
+                    )
+input=x,sigma=s对照c维度,做自身翻倍cat
+x即随机初始噪声
+c是图像嵌入条件
+sigma与底下c开头相关，用来控制网络的输入 
+network(input * c_in, c_noise, cond, **additional_model_inputs) * c_out
+            + input * c_skip
+
+additional_model_inputs包含image_only_indicator（0初始化），num_video_frames，都与帧数相关
+
+
+
+sigma在每一步去噪的循环前就已经确定了
+x, s_in, sigmas, num_sigmas, cond, uc = self.prepare_sampling_loop(
+            x, cond, uc, num_steps
+        )
+
+
+```
+
+
+```
+输入网络前
+x-torch.Size([50, 4, 64, 80])
+x = torch.cat((x, c.get("concat", torch.Tensor([]).type_as(x))), dim=1)
+x-torch.Size([50, 8, 64, 80])
+        return self.diffusion_model(
+            x,初始噪声cat-cond_frames
+            timesteps=t,torch.Size([50])
+            context=c.get("crossattn", None),cond_frames_without_noise
+            y=c.get("vector", None),作为额外嵌入条件.用作label-embed,在网络前和时间嵌入cat
+            **kwargs,作为额外嵌入条件
+        )
+```
+
+预测噪声，后面根据公式逐步去噪
+
+
+
+#### 2.预处理后，通过videounet   
+即   
+```
+c_skip, c_out, c_in, c_noise = self.scaling(sigma)
+return (
+            network(input * c_in, c_noise, cond, **additional_model_inputs) * c_out
+            + input * c_skip
+```
+然后调用  
+```
+return self.diffusion_model(
+            x,
+            timesteps=t,
+            context=c.get("crossattn", None),
+            y=c.get("vector", None),
+            **kwargs,
+```
+然后进入videounet    
+x=torch.Size([50, 8, 64, 80])   
+emb = emb + self.label_emb(y)    
+torch.Size([50, 1280])    
+- input_blocks    
+第一个TimestepEmbedSequential-0，扩展通道数  
+两个TimestepEmbedSequential-1，2,接一个TimestepEmbedSequential-3（仅下采样），完成一组，含多组   
+（4，5），6   
+（7，8），9   
+（10，11）   
+h = module(     
+hs.append(h)用来跳跃连接      
+例子TimestepEmbedSequential-1：VideoResBlock+SpatialVideoTransformer       
+  - VideoResBlock：conv,linear. time_stack:Conv3d,linear,(time_mixer): AlphaBlender().     
+
+  - SpatialVideoTransformer:BasicTransformerBlock,time_stack:VideoTransformerBlock,time_pos_embed, (time_mixer): AlphaBlender().    
+```
+ h = module(
+                h,
+                emb,
+                context=context,
+                image_only_indicator=image_only_indicator,
+                time_context=time_context,
+                num_video_frames=num_video_frames,
+```    
+
+- h = self.middle_block(   
+  VideoResBlock*2,SpatialVideoTransformer    
+- output_blocks   
+h = th.cat([h, hs.pop()], dim=1)   
+h = module(   
+
+
+#### 3.网络具体操作细节
+```
+
+h = x
+        for module in self.input_blocks:
+            h = module(
+                h,
+                emb,时间和label-embed
+                context=context,
+                image_only_indicator=image_only_indicator,
+                time_context=time_context,
+                num_video_frames=num_video_frames,
+            )
+            hs.append(h)
+
+模块说明
+elif isinstance(module, VideoResBlock):
+                x = layer(x, emb, num_video_frames, image_only_indicator)
+elif isinstance(module, SpatialVideoTransformer):
+    x = layer(
+        x,
+        context,
+        time_context,none
+        num_video_frames,
+        image_only_indicator,
+    )
+
+```
+##### VideoResBlock
+```
+elif isinstance(module, VideoResBlock):
+                x = layer(x, emb, num_video_frames, image_only_indicator)
+VideoResBlock在正常ResBlock后面做一些新操作  
+正常ResBlock，conv2d变x通道,emb映射，然后相加进入下一步。conv2d,torch.Size([50, 320, 64, 80])
+新操作:
+1.time_stack层：变换x，emb维度顺序再做一遍resnetblock,使用conv3d，输入torch.Size([2, 320, 25, 64, 80])
+Conv3d(320, 320, kernel_size=(3, 1, 1), stride=(1, 1, 1), padding=(1, 0, 0))
+in,out没有改变向量形状
+x = self.time_stack(
+            x, rearrange(emb, "(b t) ... -> b t ...", t=num_video_frames值25，后面用arange产生作用
+            )
+2.time_mixer
+x = self.time_mixer(
+            x_spatial=x_mix, 进入time_stack前
+            x_temporal=x, 进入time_stack后的image_only_indicator=image_only_indicator形状【2，25】
+内部time_stack的强度
+alpha = self.get_alpha(image_only_indicator)
+有一个内部因子决定alpha大小
+控制
+        x = (
+            alpha.to(x_spatial.dtype) * x_spatial
+            + (1.0 - alpha).to(x_spatial.dtype) * x_temporal
+
+转回torch.Size([50, 320, 64, 80])
+
+
+```
+##### SpatialVideoTransformer
+```
+cond_frames_without_noise做crossattn-torch.Size([1, 1, 1024])
+拓展到([50, 1, 1024])
+context=c.get("crossattn", None),
+没有时间和标签嵌入的信息 
+
+if exists(context无噪声图像):
+            spatial_context = context
+
+        if self.use_spatial_context:
+            assert (
+                context.ndim == 3
+            ), f"n dims of spatial context should be 3 but are {context.ndim}"
+
+            time_context = context
+
+t_emb = timestep_embedding(正余弦
+            num_frames,
+            self.in_channels,
+            repeat_only=False,
+            max_period=self.max_time_embed_period,
+        )
+        emb = self.time_pos_embed(t_emb)神经网络
+        emb = emb[:, None, :]
+        用来确定是第几帧
+
+SpatialVideoTransformer):
+    x = layer(
+        x,
+        context,作为spatial_context和time_context
+        time_context,none
+        num_video_frames,
+        image_only_indicator,
+    )
+将num_video_frames做arange在变50维，做时间嵌入。sinusoidal timestep embeddings，再通过网络linear进一步嵌入，
+然后循环做transformer_blocks（用BasicTransformerBlock）和time_stack（用spatialvideoTransformerBlock）
+BasicTransformerBlock:五个头，采用c语言高效内存管理计算注意力，
+
+下面是spatialvideoTransformer
+x_mix = x=torch.Size([50, 5120, 320])
+x_mix = x_mix + emb=torch.Size([50, 1, 320])
+x_mix = mix_block(x_mix, context=time_context, timesteps=timesteps)
+            x = self.time_mixer(
+                x_spatial=x,
+                x_temporal=x_mix,
+                image_only_indicator=image_only_indicator,
+            )
+先有一个ffin(与ff操作一样),attn1,attn2,ff
+x = self.time_mixer(
+                x_spatial=x,
+                x_temporal=x_mix,
+def forward(
+        self,
+        x_spatial: torch.Tensor,
+        x_temporal: torch.Tensor,
+        image_only_indicator: Optional[torch.Tensor] = None,
+```
+
+总之就是上中下模块后self.diffusion_model结束
+
+
+出来是torch.Size([50, 4, 64, 80])。分开后为torch.Size([25, 4, 64, 80])，因为用了cfg   
+不断迭代和去噪最终得到samples_z   
+再进decode_first_stage   
+torch.Size([25, 3, 512, 640])     
+
+？？？很多系数如sigma,gamma,c控制出入幅度，这些不太明白，eular步也不太明白？？？？   
+
+
+
 
 
 

@@ -1,6 +1,6 @@
 # 计算
 
-## conv计算
+## conv2d计算
 输出大小  
 ![Alt text](assets_picture/conv/image.png)    
 ![Alt text](assets_picture/conv/image-1.png)    
@@ -46,6 +46,62 @@ weight (Tensor): the learnable weights of the module of shape
 dilation = 2  
 ![Alt text](assets_picture/conv/image-2.png)   
 
+## conv3d
+3D conv的卷积核就是( c , k d , k h , k w )，其中k_d就是多出来的第三维，根据具体应用，在视频中就是时间维，在CT图像中就是层数维.   
+
+举一个简单的例子，对于一个宽高均为[28,28]尺寸的彩色（3通道）视频数据集，假设每一次想要处理10帧图像，每次传入一份数据（10帧），那么输入尺寸为[1,3,10,28,28]。   
+
+![Alt text](assets_picture/conv/image-31.png)   
+![Alt text](assets_picture/conv/image-32.png)
+
+
+$  out(N_i, C_{out_j}) = bias(C_{out_j}) +
+                                \sum_{k = 0}^{C_{in} - 1} weight(C_{out_j}, k) \star input(N_i, k) $   
+
+where $\star$ is the valid 3D `cross-correlation`_ operator
+
+torch.nn.Conv3d(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', device=None, dtype=None)   
+
+stride controls the stride for the cross-correlation.
+stride 控制互相关的步幅。
+
+padding controls the amount of padding applied to the input. It can be either a string {‘valid’, ‘same’} or a tuple of ints giving the amount of implicit padding applied on both sides.
+padding 控制应用于输入的填充量。它可以是字符串 {‘valid’, ‘same’} 或整数元组，给出应用于两侧的隐式填充量。
+
+dilation controls the spacing between the kernel points; also known as the à trous algorithm. It is harder to describe, but this link has a nice visualization of what dilation does.
+dilation 控制内核点之间的间距；也称为 à trous 算法。描述起来比较困难，但这个链接很好地展示了 dilation 的作用。
+
+groups controls the connections between inputs and outputs. in_channels and out_channels must both be divisible by groups. For example,
+groups 控制输入和输出之间的连接。 in_channels 和 out_channels 必须都能被 groups 整除。例如，
+
+At groups=1, all inputs are convolved to all outputs.
+当 groups=1 时，所有输入都与所有输出进行卷积。
+
+At groups=2, the operation becomes equivalent to having two conv layers side by side, each seeing half the input channels and producing half the output channels, and both subsequently concatenated.
+在 groups=2 时，该操作等效于并排有两个卷积层，每个层看到一半的输入通道并产生一半的输出通道，并且随后将两者连接起来。
+
+At groups= in_channels, each input channel is convolved with its own set of filters (of size 
+out_channels/
+in_channels
+ ).
+在 groups= in_channels 处，每个输入通道都与其自己的一组滤波器（大小为 
+out_channels/
+in_channels
+  ）进行卷积。
+
+The parameters kernel_size, stride, padding, dilation can either be:
+参数 kernel_size 、 stride 、 padding 、 dilation 可以是：
+
+a single int – in which case the same value is used for the depth, height and width dimension
+单个 int – 在这种情况下，深度、高度和宽度尺寸使用相同的值
+
+a tuple of three ints – in which case, the first int is used for the depth dimension, the second int for the height dimension and the third int for the width dimension
+三个 int 的 tuple – 在这种情况下，第一个 int 用于深度尺寸，第二个 int 用于高度尺寸，第三个 int 用于宽度尺寸
+
+depthwise convolution    
+When groups == in_channels and out_channels == K * in_channels, where K is a positive integer, this operation is also known as a “depthwise convolution”.
+当 groups == in_channels 且 out_channels == K * in_channels 时，其中 K 是正整数，此操作也称为“深度卷积”。   
+![Alt text](assets_picture/conv/image-33.png)
 
 ## GroupNorm
 $$ y = \frac{x - \mathrm{E}[x]}{ \sqrt{\mathrm{Var}[x] + \epsilon}} * \gamma + \beta $$   
