@@ -393,9 +393,9 @@ print("MS-SSIM score:", ms_ssim_score)
 
 ## LPIPS (Learned Perceptual Image Patch Similarity）
 可学习感知图像块相似度(Learned Perceptual Image Patch Similarity, LPIPS)也称为“感知损失”(perceptual loss)   
-是一种基于学习的感知图像补丁相似性指标，用于评估图像的感知质量。
+是一种基于学习的感知图像补丁相似性指标，用于评估图像的感知质量。   
 
-具体而言，LPIPS的计算过程如下：
+具体而言，LPIPS的计算过程如下：   
 
 使用预训练的CNN模型（通常是基于深度学习的图像分类模型）提取原始图像和重建图像的特征表示。
 
