@@ -271,7 +271,7 @@ f=H/h为下采样率（downsampling factor）
 
 - 重建损失（Reconstruction Loss）：是重建图像与原始图像在像素空间上的均方误差mse_loss
 - 感知损失（Perceptual Loss）：是最小化重构图像和原始图像分别在预训练的VGG网络上提取的特征在像素空间上的均方误差；可参考感知损失（perceptual loss）详解
-- 对抗损失（Adversarial Loss）：使用Patch-GAN的判别器来进行对抗训练， 可参考PatchGAN原理
+- 对抗损失（Adversarial Loss）：使用Patch-GAN的判别器来进行对抗训练， 可参考PatchGAN原理？？？？
 - 正则项（KL divergence Loss）：通过增加正则项来使得latent的方差较小且是以0为均值，即计算latent和标准正态分布的KL损失  
 ![Alt text](assets_picture/stable_diffusion/image-120.png)   
 KL散度计算的就是数据的原分布与近似分布的概率的对数差的期望值。    
@@ -1087,6 +1087,207 @@ ControlNet 把每一种不同类别的输入分别训练了模型，目前公开
 - 由于SD-T进行扩散时参考了我们多出来的条件，所以最终出现的图会具有我们预处理时的特征   
 ![Alt text](assets_picture/stable_diffusion/image-47.png)  
 
+##### 动手训练sdxlbase-controlnet
+###### 加载数据
+fill50k数据集   
+格式样例{"text": "aqua circle with light pink background", "image": "images/2.png", "conditioning_image": "conditioning_images/2.png"}     
+
+加载数据时debug麻烦了些   
+涉及https://huggingface.co/docs/datasets/v2.0.0/en/dataset_script   
+
+###### 训练过程  
+1024图像原图像不是草图，过encode得latent=torch.Size([1, 4, 128, 128])下采样三次，* vae.config.scaling_factor 0.13025  
+正态分布创造noise   
+原图加噪noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)，根据ddpm加噪    
+![Alt text](assets_picture/stable_diffusion/image-92.png)  
+
+```
+controlnet_image = batch["conditioning_pixel_values"].to(dtype=weight_dtype)
+down_block_res_samples, mid_block_res_sample = controlnet(
+    noisy_latents,
+    timesteps,
+    encoder_hidden_states=batch["prompt_ids"],torch.Size([1, 77, 2048])
+    added_cond_kwargs=batch["unet_added_conditions"],
+    controlnet_cond=controlnet_image,1024直接放进去
+没有unet得解码部分
+只是取出down和mid
+其中batch['unet_added_conditions']['text_embeds']torch.Size([1, 1280])
+batch['unet_added_conditions']['time_ids']torch.Size([1, 6])
+
+
+
+
+elif self.config.addition_embed_type == "text_time":
+            # SDXL - style
+
+
+
+
+
+
+```
+controlnet    
+
+timesteps正余弦映射，linear得到emb   
+added_cond_kwargs得time_ids正余弦映射，结果cat text_embeds,过linear得aug_emb     
+emb = emb + aug_emb一起相加  
+
+原始讲解是将这两个做额外嵌入，在这里对不上   
+1.原始尺寸
+2.裁剪的左上定点坐标
+
+
+
+```
+
+
+
+    def forward(
+        self,
+        sample: torch.FloatTensor,
+        timestep: Union[torch.Tensor, float, int],
+        encoder_hidden_states: torch.Tensor,
+        controlnet_cond: torch.FloatTensor,
+        conditioning_scale: float = 1.0,
+        class_labels: Optional[torch.Tensor] = None,
+        timestep_cond: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        added_cond_kwargs: Optional[Dict[str, torch.Tensor]] = None,
+```
+controlnet_cond用conv下采样三次   
+sample = sample（加噪的） + controlnet_cond    
+
+额外嵌入条件两个和时间一起进emb  
+加噪的原图和controlnet_cond一起进sample   
+encoder_hidden_states为文本条件控制:down没有用到    
+```
+sample, res_samples = downsample_block(hidden_states=sample, temb=emb)
+第一个down没有使用交叉注意力
+网络中间hidden_states = hidden_states + temb
+
+
+第234个down
+sample, res_samples = downsample_block(
+                    hidden_states=sample,
+                    temb=emb,
+                    encoder_hidden_states=encoder_hidden_states,
+
+hidden_states = resnet(hidden_states, temb, scale=lora_scale)
+                hidden_states = attn(
+                    hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,
+```
+![Alt text](assets_picture/stable_diffusion/image-25.png)   
+![Alt text](assets_picture/stable_diffusion/image-26.png)  
+另外一个变化是SDXL只用了3个stage，这意味着只进行了两次2x下采样，而之前的SD使用4个stage，包含3个2x下采样。  
+SDXL的网络宽度（这里的网络宽度是指的是特征channels）相比之前的版本并没有改变，3个stage的特征channels分别是320、640和1280。  
+SDXL参数量的增加主要是使用了更多的transformer blocks，在之前的版本，每个包含attention的block只使用一个transformer block（self-attention -> cross-attention -> ffn），但是SDXL中stage2和stage3的两个CrossAttnDownBlock2D模块中的transformer block数量分别设置为2和10，并且中间的MidBlock2DCrossAttn的transformer blocks数量也设置为10（和最后一个stage保持一样）。可以看到SDXL的UNet在空间维度最小的特征上使用数量较多的transformer block，这是计算效率最高的。  
+
+controlnet的stage2和stage3的transformer block数量分别设置为2和10   
+
+mid就是一个transformer和一个resnet   
+
+down收集的结果down_block_res_samples以及mid结果再分别过各自的一个conv，即是零卷积，1*1    
+
+```
+down_block_res_samples, mid_block_res_sample = controlnet(
+      noisy_latents,
+      timesteps,
+      encoder_hidden_states=batch["prompt_ids"],
+      added_cond_kwargs=batch["unet_added_conditions"],
+      controlnet_cond=controlnet_image,
+      return_dict=False,
+  )
+
+  # Predict the noise residual
+  model_pred = unet(
+      noisy_latents,
+      timesteps,
+      encoder_hidden_states=batch["prompt_ids"],
+      added_cond_kwargs=batch["unet_added_conditions"],
+      down_block_additional_residuals=[
+          sample.to(dtype=weight_dtype) for sample in down_block_res_samples
+      ],
+      mid_block_additional_residual=mid_block_res_sample.to(dtype=weight_dtype),
+  ).sample
+
+```
+再经过原始的unet   
+第一个crossattnblock，10个头，两组（ResnetBlock2D，Transformer2DModel），每个Transformer2DModel含两个BasicTransformerBlock   
+第二个crossattnblock，20个头，两组（ResnetBlock2D，Transformer2DModel），每个Transformer2DModel含10个BasicTransformerBlock    
+
+原始的unet的down结束存留down_block_res_samples    
+
+new_down_block_res_samples=down_block_res_samples+down_block_additional_residual   
+
+最后down_block_res_samples = new_down_block_res_samples
+
+mid中一个crossattnblock，20个头，1组（ResnetBlock2D，Transformer2DModel），加一个ResnetBlock2D，每个Transformer2DModel含10个     
+sample = sample + mid_block_additional_residual   
+
+model_pred结束   
+model_pred = unet(    
+```
+if noise_scheduler.config.prediction_type == "epsilon":
+    target = noise
+elif noise_scheduler.config.prediction_type == "v_prediction":
+    target = noise_scheduler.get_velocity(latents, noise, timesteps)
+
+
+对以上解释
+noisy_samples = sqrt_alpha_prod * original_samples + sqrt_one_minus_alpha_prod * noise
+
+velocity = sqrt_alpha_prod * noise - sqrt_one_minus_alpha_prod * sample
+？？？？   
+
+pixel_values = batch["pixel_values"]
+latents = vae.encode(pixel_values).latent_dist.sample()
+
+noise = torch.randn_like(latents)
+noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+
+down_block_res_samples, mid_block_res_sample = controlnet(
+                    noisy_latents,
+
+model_pred = unet(
+                    noisy_latents,
+
+计算损失
+loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+
+```
+
+adamw优化更新参数
+```
+ for (device_params, device_grads, device_exp_avgs, device_exp_avg_sqs,
+         device_max_exp_avg_sqs, device_state_steps) in grouped_tensors.values():
+
+
+# update steps
+torch._foreach_add_(device_state_steps, 1)
+
+# Perform stepweight decay
+torch._foreach_mul_(device_params, 1 - lr * weight_decay)
+（weight_decay=0.01）
+
+# Decay the first and second moment running average coefficient
+torch._foreach_mul_(device_exp_avgs, beta1)
+torch._foreach_add_(device_exp_avgs, device_grads, alpha=1 - beta1)
+
+torch._foreach_mul_(device_exp_avg_sqs, beta2)
+torch._foreach_addcmul_(device_exp_avg_sqs, device_grads, device_grads, 1 - beta2)
+
+```
+
+
+
+
+
+
+
+
+
+
 #### T2I-Adapter
 T2I-Adapter原理和ControlNet相似，都是为了给稳定扩散添加额外的输入条件   
 与 前述Control-Net/Composer的出发点一致的是，希望通过更多，更细粒度的控制条件，来显式地实现对于扩散模型的生成的结果   
@@ -1167,12 +1368,15 @@ L_simple。
 ### 额外的条件注入
 采用了额外的条件注入来解决训练过程中数据处理问题，这里包括两种条件注入方式，它们分别解决训练过程中数据利用效率和图像裁剪问题
 
+1.原始尺寸（width和height）作为条件嵌入。   
 SD的训练往往是先在256x256上预训练，然后在512x512上继续训练。当使用256x256尺寸训练时，要过滤掉那些宽度和高度小于256的图像，采用512x512尺寸训练时也同样只用512x512尺寸以上的图像。由于需要过滤数据，这就导致实际可用的训练样本减少了，要知道训练数据量对大模型的性能影响是比较大。  
 一种直接的解决方案是采用一个超分模型先对数据进行预处理，但是目前超分模型并不是完美的，还是会出现一些artifacts（对于pixel diffusion模型比如Imagen，往往是采用级联的模型，64x64的base模型加上两个超分模型，其中base模型的数据利用效率是比较高的，但是可能的风险是超分模型也可能会出现artifacts）。  
 SDXL提出了一种简单的方案来解决这个问题，那就是将图像的原始尺寸（width和height）作为条件嵌入UNet模型中，这相当于让模型学到了图像分辨率参数  
 在训练过程中，我们可以不过滤数据直接resize图像，在推理时，我们只需要送入目标分辨率而保证生成的图像质量。图像原始尺寸嵌入的实现也比较简单，和timesteps的嵌入一样，先将width和height用傅立叶特征编码进行编码，然后将特征concat在一起加在time embedding上。？？？
 
-第二个问题是训练过程中的图像裁剪问题，目前文生图模型预训练往往采用固定图像尺寸，这就需要对原始图像进行预处理，这个处理流程一般是先将图像的最短边resize到目标尺寸，然后沿着图像的最长边进行裁剪（random crop或者center crop）。但是图像裁剪往往会导致图像出现缺失问题，比如下图采用center crop导致人物的头和脚缺失了，这也直接导致模型容易生成缺损的图像。？？？？  
+2.裁剪的左上定点坐标作为额外的条件。   
+这个注入方式可以采用和图像原始尺寸一样的方式，即通过傅立叶编码并加在time embedding上   
+第二个问题是训练过程中的图像裁剪问题。目前文生图模型预训练往往采用固定图像尺寸，这就需要对原始图像进行预处理，这个处理流程一般是先将图像的最短边resize到目标尺寸，然后沿着图像的最长边进行裁剪（random crop或者center crop）。但是图像裁剪往往会导致图像出现缺失问题，比如下图采用center crop导致人物的头和脚缺失了，这也直接导致模型容易生成缺损的图像。？？？？  
 如下图所示，SD 1.5和SD 2.1生成的猫出现头部缺失问题，这其实就是训练过程中裁剪导致的  
 为了解决这个问题，SDXL也将训练过程中裁剪的左上定点坐标作为额外的条件注入到UNet中，这个注入方式可以采用和图像原始尺寸一样的方式，即通过傅立叶编码并加在time embedding上。在推理时，我们只需要将这个坐标设置为(0, 0)就可以得到物体居中的图像（此时图像相当于没有裁剪）。？？?  
 SDXL在训练过程中，可以将两种条件注入（size and crop conditioning）结合在一起使用，训练数据的处理流程和之前是一样的，只是要额外保存图像的原始width和height以及图像crop时的左上定点坐标top和left
@@ -1335,6 +1539,68 @@ refiner model和base model在结构上有一定的不同，其UNet的结构如�
 
 ## 动手QA
 ### 训练中文文生图
+
+#### 数据集
+##### CC数据集（Conceptual Captions）
+cc3m：   
+语言：英文。   
+谷歌于 2018 年发布，数据集共包括 330 万对图像-标题对。团队通过创建自动 pipeline，从数十亿网页中提取，过滤和处理候选图像和文字对。   
+cc12M   
+![Alt text](assets_picture/stable_diffusion/image-138.png)
+##### Laion系列
+laion 400M：  
+语言：英文  
+laion 5B：  
+语言：英文   
+![Alt text](assets_picture/stable_diffusion/image-139.png)   
+laion 5B highresolution：  
+语言：英文   
+简介：5B的subset，但是分辨率大于1024   
+laion aesthetics V2:   
+语言：英文   
+简介：
+利用训练的aesthetic模型对数据进行筛选   
+![Alt text](assets_picture/stable_diffusion/image-140.png)    
+6.5分以上有62.5万张   
+
+
+##### YFCC100M
+1）YFCC100M：   
+语言：英文   
+2）Multimedia Commons   
+语言：英文：   
+
+其他一些零散的数据集
+
+1）WebImageText  
+2）Imagenet   
+
+##### 中文数据集
+ 1）MUGE:   
+ 2）wukong：   
+ 3）zero：   
+ 4）WuDao   
+ 5）COCO-CN：   
+ 6）Flicker-8K/30K-CN：   
+ 7）Product1M：   
+ 8）AI Challenger图像中文描述数据集：    
+
+##### 数据标签获取
+deepdanbooru   
+它是一个resnet模型+输出头，只是用的多标签的分类方法。因此训练的时候，它的loss设计不再是softmax+cross-entropy而是sigmoid+BinaryCrossEntropy。本质上就是利用danbooru上面的图像+标签，训练一个多标签的分类模型。   
+
+CLIP-Interrogator   
+CLIP-Interrogator的方法不涉及训练，非常的简单。首先，通过BLIP来生成对图像的描述信息，然后，通过zero-shot的方式，来进行分类。这个zero-shot也非常简单，比如我希望对风格进行分类，那我就预设若干种风格名称，然后用图像和这些风格名称计算CLIP-相似度，通过相似度选取topK作为这个图像的风格标签。  
+目前CLIP-Interrogator一共有5大分类类别，分别是：  
+1）artists：5265个候选。  
+2）flavors：100970个候选。   
+3）mediums：95个候选。   
+4）movements：200个候选。   
+5）negative：41个候选。   
+
+
+
+
 ### 1.encode过程 为什么在stable diffusion中输入图像(3,512,512)经过vae.encoder后变成(4,64,64)，为什么第一维多了一个?   
 bs=4  
 输入图像(4,3,512,512)
@@ -2766,7 +3032,39 @@ Gradio、Streamlit 和 Dash
 ![Alt text](assets_picture/stable_diffusion/image-123.png)
 
 
+## 权重
+ckpt格式：  
+一般情况下，用TensorFlow时保存模型都使用ckpt格式的模型文件；  
+依赖TensorFlow，只能在其框架下使用。   
+恢复模型之前需要再定义一遍网络结构，才能把变量的值恢复到网络中。
 
+pytorch模型保存格式   
+traditional PyTorch way with `pickle`  
+即后缀名为.pt, .pth, .pkl的pytorch模型文件（它们并不是在格式上有区别，只是后缀不同而已）   
+pth文件是python中存储文件的常用格式；keras中则是使用.h5文件。   
+
+safetensors  
+safe_serialization  
+
+文件保存   
+```
+model_to_save = self
+
+# Attach architecture to the config
+# Save the config
+if is_main_process:
+    model_to_save.save_config(save_directory)
+
+# Save the model
+state_dict = model_to_save.state_dict()
+
+if safe_serialization:
+    safetensors.torch.save_file(
+        state_dict, os.path.join(save_directory, weights_name), metadata={"format": "pt"}
+    )
+else:
+    torch.save(state_dict, os.path.join(save_directory, weights_name))
+```
 
 
 

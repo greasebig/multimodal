@@ -934,3 +934,20 @@ WordPiece算法可以看作是BPE的变种。不同点在于，WordPiece基于�
 
 ##### Unigram
 Unigram 是 Subword Regularization: Improving Neural Network Translation Models with Multiple Subword Candidates (Kudo, 2018) 中介绍的一种子词标记化算法。与 BPE 或 WordPiece 相比，Unigram 将其基本词汇表初始化为大量符号，并逐步修剪每个符号以获得更小的词汇表。例如，基本词汇表可以对应于所有预先标记化的单词和最常见的子串。 Unigram 不直接用于 Transformer 中的任何模型，但它与 SentencePiece 结合使用。
+
+
+## EMA
+指数移动平均（Exponential Moving Average，EMA）是一种用于平滑时间序列数据的方法，经常在深度学习中用于优化算法，特别是用于平滑梯度或模型参数。EMA的计算公式如下：
+
+$ S_t = \alpha \cdot x_t + (1 - \alpha) \cdot S_{t-1} $   
+
+通常，初始的 \( S_0 \) 可以设置为第一个输入值 \( x_0 \)。   
+其中：
+- \( S_t \) 是在时间 \( t \) 的EMA值。
+- \( x_t \) 是在时间 \( t \) 的输入值（例如，梯度或模型参数）。
+- \( \alpha \) 是平滑因子，通常取值在0到1之间。较大的 \( \alpha \) 使得EMA对当前输入更为敏感，而较小的 \( \alpha \) 使得EMA更平滑，对历史数据的影响更大。
+- \( S_{t-1} \) 是在时间 \( t-1 \) 的EMA值。
+
+在深度学习中，EMA通常用于平滑梯度或参数更新，以提高训练的稳定性。在优化算法中，EMA可以用来估计梯度的趋势，并相应地调整学习率。EMA的引入有助于减小梯度的噪声，使得训练过程更加平稳。
+
+在代码中，对于给定的 \( \alpha \) 值，可以使用上述公式通过迭代计算来更新EMA。
