@@ -631,7 +631,9 @@ SD的训练是多阶段的（先在256x256尺寸上预训练，然后在512x512�
 
 ### FID 
 (Fréchet Inception Distance)   
-计算Frechet distance between 2 Gaussians (训练好的图片分类的模型的CNN去除 真实和生成的respresentations，计算距离)  
+计算Frechet distance between 2 Gaussians (训练好的图片分类的模型的CNN去除 真实和生成的respresentations，计算距离)    
+FID的全称是Fréchet Inception Distance，用于衡量两个多元正态分布的距离，数值越小越好。具体的，FID使用Inception Net-V3全连接前的2048维向量作为图片的特征向量，再计算两张图像特征之间的距离。    
+
 需要大量样本一次性计算  
 ![Alt text](assets_picture/stable_diffusion/image-49.png)  
 - 从真实图像和生成图像中分别抽取n个随机子样本，并通过Inception-v3网络获得它们的特征向量。
@@ -1538,6 +1540,18 @@ refiner model和base model在结构上有一定的不同，其UNet的结构如�
 
 ## 动手QA
 ### 训练中文文生图
+
+#### 评价指标
+具体数据没有  
+clipscore: openclip_chinese。需要都推理一边然后去根据图文名字做计算     
+fid。要不要做，要做的话需要分验证集训练，然后调用fid代码计算    
+不分验证集。全部拿来做，需要都推理一遍，一起做fid.  
+
+首先是麻烦。先整理数据，然后找计算代码，然后都推理一遍，然后计算   
+这样的代码可以一小时搞定，推理和运行计算要一天   
+严格说还得划分验证集，还得比较其他模型结果  
+这个得几天，重新训练，以及拷贝开源的一个模型跑结果并比较    
+还得设计没见过的数据   
 
 #### 数据集
 ##### CC数据集（Conceptual Captions）
@@ -2469,6 +2483,7 @@ attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len) + causal
 ## 视频基于关键字/图片检索片段
 
 ## SDXL-turbo or SDXL in 4 steps with Latent Consistency LoRAs(LCM)
+
 ### SDXL-turbo （November 28, 2023）
 SDXL Turbo模型是在SDXL 1.0模型的基础上设计了全新的蒸馏训练方案（Adversarial Diffusion Distillation，ADD），经过蒸馏训练得到的。SDXL Turbo模型只需要1-4步就能够生成高质量图像，这接近实时的性能  
 SDXL Turbo模型本质上依旧是SDXL模型，其网络架构与SDXL一致，可以理解为一种经过蒸馏训练后的SDXL模型。  
@@ -2478,7 +2493,7 @@ ADD蒸馏方案的整体架构
 ![Alt text](assets_picture/stable_diffusion/4ebbcb2a94e094dbad411d7f507ed139.png)  
 ADD蒸馏方案的主要流程是这样的：将预训练好的SDXL模型作为学生模型（预训练好的网络能显著提高对抗性损失（adversarial loss）的训练效果），它接收经过forward diffusion process后的噪声图片，并输出去噪后的图片，然后用这个去噪后的图片与原图输入判别器中计算adversarial loss以及与教师模型输出的去噪图片计算distillation loss。ADD蒸馏算法中主要通过优化这两个loss来对SDXL Turbo进行训练：
 
-adversarial loss：借鉴了GAN的思想，设计了`Hinge loss`（支持向量机SVM中常用的损失函数）作为SDXL的adversarial loss，通过一个Discriminator来辨别学生模型（SDXL Turbo）生成的图像和真实的图像，以确保即使在一个或两个采样步数的低步数状态下也能确保高图像保真度，同时避免了其他蒸馏方法中常见的失真或模糊问题。
+adversarial loss：借鉴了GAN的思想，设计了`Hinge loss`（支持向量机SVM中常用的损失函数）？？？作为SDXL的adversarial loss，通过一个Discriminator来辨别学生模型（SDXL Turbo）生成的图像和真实的图像，以确保即使在一个或两个采样步数的低步数状态下也能确保高图像保真度，同时避免了其他蒸馏方法中常见的失真或模糊问题。
 
 distillation loss：经典的蒸馏损失函数，让SDXL 1.0模型作为教师模型并冻结参数，让学生模型（SDXL Turbo）的输出和教师模型的输出尽量一致，具体计算方式使用的是`跨周期的L2损失`。最后，ADD蒸馏训练中总的损失函数就是adversarial loss和distillation loss的加权和，如下图所示，其中 $ \lambda $ 权重设置2.5：  
 ![Alt text](assets_picture/stable_diffusion/8eb8f622069f17b88e2c139ca361fb2b.png)   
