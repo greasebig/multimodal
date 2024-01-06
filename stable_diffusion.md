@@ -525,7 +525,9 @@ DPM 的主要优点是生成质量高，但是由于DPM会自适应调整步长�
 　　DPM adaptive会自适应地调整步数。它可能会比较慢,因为不能保证在采样步数内结束，采样时间不定。
 
 ##### UniPC
-UniPC(统一预测器-校正器)是2023年发布的新采样器。它受ODE求解器中的预测器-校正器方法的启发,可以在5-10步内实现高质量的图像生成。
+UniPC(统一预测器-校正器)是2023年发布的新采样器。它受ODE求解器中的预测器-校正器方法的启发,可以在5-10步内实现高质量的图像生成。   
+在controlnet中采用20步    
+ 这里我们不使用 Stable Diffusion 默认的 PNDMScheduler 调度器,而使用改进的 UniPCMultistepScheduler (目前最快的扩散模型调度器之一),可以极大地加快推理速度   
 
 ##### 评估采样器
 ###### 图像收敛  
@@ -1255,6 +1257,7 @@ model_pred = unet(
 
 计算损失
 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+计算模型预测噪声和真实噪声的差别，损失。
 
 ```
 
@@ -1280,10 +1283,49 @@ torch._foreach_addcmul_(device_exp_avg_sqs, device_grads, device_grads, 1 - beta
 
 ```
 
+###### 训练时梯度消失
+1.sdxl controlnet训练时梯度消失   
+训练数据五万张    
+零卷积层梯度10**-5   
+crossattnblock梯度10**-10    
+原因分析，网络过于复杂，导致传到controlnet（位于sdxl的中间）时已经没有梯度        
+或者说梯度过小，影响不大，都是黑图片出来   
+真实问题是val的nsfw_safechecker导致   
+sdxl没有nsfw checker,可能是wandb不支持1024的图片？  
+bs4 \
+gradient_accumulation_steps2\
+resolution=1024 \
+--learning_rate=1e-5\
+显存60g   
+
+bs4            
+显存45g   
+
+control_image = load_image("/data/lujunda/sd/fill50k/fill50k/conditioning_images/1.png")   
+prompt = "light coral circle with white background"   
+推理   
+![Alt text](assets_picture/stable_diffusion/image-146.png)
+8000step   
+![Alt text](assets_picture/stable_diffusion/image-145.png)  
+15000step   十小时    
 
 
-
-
+2.训练sd1.4 contraolnet   
+bs4 \
+gradient_accumulation_steps2\
+resolution=512 \
+--learning_rate=1e-5\
+显存15g
+![Alt text](assets_picture/stable_diffusion/image-143.png)  
+100step   
+![Alt text](assets_picture/stable_diffusion/image-142.png)   
+4000step   
+![Alt text](assets_picture/stable_diffusion/image-141.png)   
+8000step   
+![Alt text](assets_picture/stable_diffusion/image-144.png)   
+12000step   
+![Alt text](assets_picture/stable_diffusion/image-147.png)   
+15000   三个半小时     
 
 
 
@@ -2922,14 +2964,17 @@ elif isinstance(module, SpatialVideoTransformer):
     )
 
 ```
-##### VideoResBlock
+##### VideoResBlock  
+x = layer(x, emb, num_video_frames   
 ```
 elif isinstance(module, VideoResBlock):
                 x = layer(x, emb, num_video_frames, image_only_indicator)
 VideoResBlock在正常ResBlock后面做一些新操作  
 正常ResBlock，conv2d变x通道,emb映射，然后相加进入下一步。conv2d,torch.Size([50, 320, 64, 80])
+
+
 新操作:
-1.time_stack层：变换x，emb维度顺序再做一遍resnetblock,使用conv3d，输入torch.Size([2, 320, 25, 64, 80])
+1.time_stack层：变换x和emb的维度顺序，再做一遍resnetblock,使用conv3d，输入torch.Size([2, 320, 25, 64, 80])
 Conv3d(320, 320, kernel_size=(3, 1, 1), stride=(1, 1, 1), padding=(1, 0, 0))
 in,out没有改变向量形状
 x = self.time_stack(
@@ -2953,6 +2998,16 @@ alpha = self.get_alpha(image_only_indicator)
 ```
 ##### SpatialVideoTransformer
 ```
+SpatialVideoTransformer):
+    x = layer(
+        x,
+        context,作为spatial_context和time_context
+        time_context,none
+        num_video_frames,
+        image_only_indicator,
+    )
+
+
 cond_frames_without_noise做crossattn-torch.Size([1, 1, 1024])
 拓展到([50, 1, 1024])
 context=c.get("crossattn", None),
