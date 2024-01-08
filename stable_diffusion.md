@@ -1283,8 +1283,8 @@ torch._foreach_addcmul_(device_exp_avg_sqs, device_grads, device_grads, 1 - beta
 
 ```
 
-###### 训练时梯度消失
-1.sdxl controlnet训练时梯度消失   
+###### 训练时问题
+1.sdxl controlnet训练时    
 训练数据五万张    
 零卷积层梯度10**-5   
 crossattnblock梯度10**-10    
@@ -1309,8 +1309,12 @@ prompt = "light coral circle with white background"
 ![Alt text](assets_picture/stable_diffusion/image-145.png)  
 15000step   十小时    
 
+40000步 1e-5效果依然不好，比不上15000步sd14   
+改成1e-4再练30000步
+效果依旧不好
 
 2.训练sd1.4 contraolnet   
+梯度也很小，最后一层10e-12或10e-9,最浅一层10e-9    
 bs4 \
 gradient_accumulation_steps2\
 resolution=512 \
@@ -1324,8 +1328,23 @@ resolution=512 \
 8000step   
 ![Alt text](assets_picture/stable_diffusion/image-144.png)   
 12000step   
-![Alt text](assets_picture/stable_diffusion/image-147.png)   
-15000   三个半小时     
+![Alt text](assets_picture/stable_diffusion/image-147.png)    
+![Alt text](assets_picture/stable_diffusion/image-149.png)    
+pale golden rod circle with spring green background   
+![Alt text](assets_picture/stable_diffusion/image-151.png)   
+light sea green circle with red background"   
+15000   三个半小时    
+
+![Alt text](assets_picture/stable_diffusion/image-148.png)   
+pale golden rod circle with spring green background    
+![Alt text](assets_picture/stable_diffusion/image-150.png)   
+light sea green circle with red background"   
+150000    两天    
+
+测试canny图  
+![Alt text](assets_picture/stable_diffusion/image-153.png)   
+![Alt text](assets_picture/stable_diffusion/image-152.png)   
+训练数据太简单，只是圆轮廊和背景导致效果不好   
 
 
 
