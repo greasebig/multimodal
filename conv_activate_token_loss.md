@@ -103,6 +103,12 @@ When groups == in_channels and out_channels == K * in_channels, where K is a pos
 当 groups == in_channels 且 out_channels == K * in_channels 时，其中 K 是正整数，此操作也称为“深度卷积”。   
 ![Alt text](assets_picture/conv/image-33.png)
 
+## 池化
+nn.MaxPool2d——最大池化：选取池化核覆盖区域的最大值作为输出。   
+输出图像的尺寸计算公式：   
+![Alt text](assets_picture/conv_activate_token_loss/image.png)   
+
+
 ## GroupNorm
 $$ y = \frac{x - \mathrm{E}[x]}{ \sqrt{\mathrm{Var}[x] + \epsilon}} * \gamma + \beta $$   
 
@@ -951,3 +957,4 @@ $ S_t = \alpha \cdot x_t + (1 - \alpha) \cdot S_{t-1} $
 在深度学习中，EMA通常用于平滑梯度或参数更新，以提高训练的稳定性。在优化算法中，EMA可以用来估计梯度的趋势，并相应地调整学习率。EMA的引入有助于减小梯度的噪声，使得训练过程更加平稳。
 
 在代码中，对于给定的 \( \alpha \) 值，可以使用上述公式通过迭代计算来更新EMA。
+
