@@ -1,11 +1,101 @@
 # Stable Diffusion
 
+## unet训练和ddpm,ddim的关系是什么？怎么体现去噪公式的？
+每一轮训练，加噪过程遵循公式，在encoder之后，unet之前，对图像latant加噪，受随机初始化的时间步控制      
+基于add_noise函数     
+
+去噪过程使用pndm的step函数，在哪里用到呢？    
+loss的反向传播optimizer（adamW）也有step函数，他们一样吗？    
+Predict the sample from the previous timestep by reversing the SDE. This function propagates the diffusion process from the learned model outputs (most often the predicted noise)    
+训练过程没有跳进pndm的step函数，只是用了add_noise     
+只有在推理时候用到    
+unet预测出latant，并经过guidance    
+详见以下的“###lora推理”     
+时间步长度的for循环中    
+compute the previous noisy sample x_t -> x_t-1       
+latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]       
+使用pndm的step函数       
+step_plms     
+_get_prev_sample     
+具体是    
+
+
+```
+一步步迭代回去
+for i, t in enumerate(timesteps):
+                if self.interrupt:
+                    continue
+
+                # expand the latents if we are doing classifier free guidance
+                # 推理阶段latent是随机初始化的噪声
+                latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
+                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+
+                # predict the noise residual
+                noise_pred = self.unet(
+                    latent_model_input,
+                    t,
+                    encoder_hidden_states=prompt_embeds,
+                    timestep_cond=timestep_cond,
+                    cross_attention_kwargs=self.cross_attention_kwargs,
+                    added_cond_kwargs=added_cond_kwargs,
+                    return_dict=False,
+                )[0]
+
+
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                    noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_text - noise_pred_uncond)
+# compute the previous noisy sample x_t -> x_t-1
+                latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
+
+```
+- 总结    
+加噪在训练时使用，训练Unet    
+去噪过程在推理中使用。在时间步长度下迭代，每一步，对latant不断使用Unet预测，预测出后经过公式去噪，再迭代。   
+compute the previous noisy sample x_t -> x_t-1    
+去噪公式需要结合原latent以及模型预测噪声使用    
+计算公式       
+prev_sample = (
+            sample_coeff * sample （xt的latent） - (alpha_prod_t_prev - alpha_prod_t) * model_output (unet对latent预测出的噪声) / model_output_denom_coeff
+        )    
+
+
+
+
+
+
+
+## 为什么GAN这么快会被取代？
+用OpenAI的一篇论文内容来讲，用Diffusion Model生成的图像质量明显优于GAN模型。   
+DALL·E是个多模态预训练大模型，“多模态”和“大”字都说明，训练这个模型的数据集十分庞大冗杂。   
+发表这篇推特的Tom Goldstein教授提到，GAN模型训练过程有个难点，就是众多损失函数的鞍点（saddle-point）的最优权重如何确定，这其实是个蛮复杂的数学问题。    
+![alt text](assets_picture/stable_diffusion/image-154.png)    
+在多层深度学习模型的训练过程中，需通过多次反馈，直至模型收敛。    
+但在实际操作中发现，损失函数往往不能可靠地收敛到鞍点，导致模型稳定性较差。即使有研究人员提出一些技巧来加强鞍点的稳定性，但还是不足以解决这个问题。    
+尤其面对更加复杂、多样化的数据，鞍点的处理就变得愈加困难了。    
+与GAN不同，DALL·E使用Diffusion Model，不用在鞍点问题上纠结，只需要去最小化一个标准的凸交叉熵损失（convex cross-entropy loss），而且人已经知道如何使其稳定。    
+这样就大大简化了模型训练过程中，数据处理的难度。说白了，就是用一个新的数学范式，从新颖的角度克服了一道障碍。    
+
+此外，GAN模型在训练过程中，除了需要“生成器”，将采样的高斯噪声映射到数据分布；还需要额外训练判别器，这就导致训练变得很麻烦了。    
+和GAN相比，Diffusion Model只需要训练“生成器”，训练目标函数简单，而且不需要训练别的网络（判别器、后验分布等），瞬间简化了一堆东西。     
+
+
+
+
+
 ## 发展脉络  
 
+DDPM(扩散领域开山之作，不是采用U-Net预测图，而是预测噪声【只预测均值，方差设为常数，这样模型也可以有很好的效果】进而恢复图像，同时引入了Time Embedding，用于记录预测的第几步，告诉模型当前这一步是否需要生成更细致图像)。    
+Improved DDPM（让模型又学了方差，同时证明了大模型有更好表现）。   
+Diffusion beats GAN（将模型加大加宽，同时加入classifier guided diffusion，把专业指标做上去，赶超之前的GAN）。   
+GLIDE（classifier-free guided diffusion方法）。  
+DALL·E 2（classifier-free guided diffusion方法同时除了使用classify模型去引导模型学习，使用文本是不是也可以做引导呢，此时引入结合了CLIP，同时做CLIP和classify的guided）。   
+
+                        
+原文链接：https://blog.csdn.net/u014297502/article/details/128157013
 
 2015年：多伦多大学提出了alignDRAW。这是一个文本到图像模型。该模型只能生成模糊的图像，但展示了通过文本输入生成模型“未见过”的图像的可能性。    
-DM模型  
-
+DM模型    
 2016年：Reed、Scott等人提出了使用「生成对抗网络」（GAN，一种神经网络结构）生成图像的方法。他们成功地从详细的文本描述中生成了逼真的鸟类和花卉图像。在这项工作之后，一系列基于GAN的模型被开发出来。  
 2020： DDPM  
 2021年：OpenAI发布了基于Transformer架构（另一种神经网络架构）的DALL-E，引起了公众的关注。  
@@ -2249,7 +2339,7 @@ parser.add_argument(
 ### 冻结权重
 accelerate无法同时加载多个模型的梯度进行更新回传，一次一个去训练   
 
-### lora推理
+### 推理，具体是lora推理
 pipe.unet.load_attn_procs(lora_path)   
 lora模型大小3Mb,训练显存6Gb      
 训练100轮五小时，loss震荡大，难以拟合数据集   
