@@ -1,5 +1,8 @@
 # Stable Diffusion
 
+## transformer第二部分进行多模态交互，条件交互，为什么有效？
+训练输入一致，推理输入一致     
+
 ## unet训练和ddpm,ddim的关系是什么？怎么体现去噪公式的？
 每一轮训练，加噪过程遵循公式，在encoder之后，unet之前，对图像latant加噪，受随机初始化的时间步控制      
 基于add_noise函数     
