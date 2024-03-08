@@ -542,6 +542,7 @@ DDIM为什么有效？？？？
 ddim原理
 ![Alt text](assets_picture/stable_diffusion/image-105.png)   
 ![Alt text](assets_picture/stable_diffusion/image-106.png)    
+关键点： ddpm训练直接使用加噪的P(xt|x0),虽然由马尔可夫推导而来，但不是马尔可夫加噪方式，             
 想办法让(2)成立  
 ![Alt text](assets_picture/stable_diffusion/image-107.png)  
 ![Alt text](assets_picture/stable_diffusion/image-108.png)   
