@@ -485,6 +485,38 @@ PSNR主要用于衡量图像的重建误差，而MS-SSIM和LPIPS更加关注人�
 - 计算FID距离：FID = d^2 + ||sigma1^(1/2)*sigma2^(1/2)||_F。  
 
 
+## 准确率(Precision)、召回率(Recall)、F值(F-Measure)、ROC曲线、PR曲线 
+![alt text](assets_picture/conv_activate_token_loss/image-5.png)    
+![alt text](assets_picture/conv_activate_token_loss/image-8.png)    
+
+召回率（recall）    
+所有实际正例中有多少被预测为正例     
+对应漏检    
+R= TP / (TP+FN)    
+
+精确率、精度（Precision）   
+表示被分为正例的示例中实际为正例的比例。    
+对应误检     
+精确率(precision)定义为：   
+![alt text](assets_picture/conv_activate_token_loss/image-7.png)    
+
+准确率（Accuracy）    
+被分对的样本数除以所有的样本数     
+![alt text](assets_picture/conv_activate_token_loss/image-6.png)    
+
+综合评价指标（F-Measure）     
+P和R指标有时候会出现的矛盾的情况，这样就需要综合考虑他们，最常见的方法就是F-Measure（又称为F-Score）。
+F-Measure是Precision和Recall加权调和平均：    
+![alt text](assets_picture/conv_activate_token_loss/image-9.png)     
+当参数α=1时，就是最常见的F1，也即    
+![alt text](assets_picture/conv_activate_token_loss/image-10.png)     
+
+ROC曲线：    
+ROC（Receiver Operating Characteristic）曲线是以假正率（FP_rate）和真正率（TP_rate）为轴的曲线，ROC曲线下面的面积我们叫做AUC   
+![alt text](assets_picture/conv_activate_token_loss/image-11.png)   
+
+PR曲线：   
+假设N_c>>P_c（即Negative的数量远远大于Positive的数量），若FP很大，即有很多N的sample被预测为P，因为FP_{rate}=FP/N_c ，因此FP_rate的值仍然很小（如果利用ROC曲线则会判断其性能很好，但是实际上其性能并不好），但是如果利用PR，因为Precision综合考虑了TP和FP的值，因此在极度不平衡的数据下（Positive的样本较少），PR曲线可能比ROC曲线更实用。
 
 ## NAFNet -- Nonlinear Activation Free Network
 ![Alt text](assets_picture/conv/image-16.png)   

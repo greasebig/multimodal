@@ -2,10 +2,87 @@
 # 检测
 
 ## 检测原理
-为什么是小尺寸特征图用于检测大尺寸物体？      
+### 如何计算anchor的感受野？设置大小?    
+anchors是什么？     
+答：anchors其实就是在训练之前人为设定的先验框，网络输出结果的框就是在anchors的基础上进行调整的。所以说先验框设定的好坏对于模型的输出效果影响还是挺大的。在yolo中一般设定一个物体的先验框的个数一般是9个，例如：
+
+    anchors = np.array(
+        [[27., 183.], [87., 31.], [51., 62.], [139., 95.], [53., 50.], [60., 54.5], [87., 55.], [161., 41.], [49.5, 44.]])
+这个先验框anchors一共有9个元素，每一个元素代表一个先验框的宽高。例如【27,183】就表示第一个先验框的宽为27，高为183。    
+
+2.一张图片有多少个先验框？    
+答：先验框的个数与图片是哪个的物体的个数有关系，一个物体默认会设定9个先验框。   
+在标注的时候会用一个矩形框来将物体标注出来，这样子我们可以根据标注信息来获取物体的左上角（x1, y1）和右下角(x2,y2)坐标，然后计算出物体的中心坐标[(x2-x1)/2, (y2-y1)/2]。 这样子就可以把ancors表示出来了。下面就是原图与画了先验框的图片的对比：     
+![alt text](assets_picture/detect_track_keypoint/image-92.png)    
+![alt text](assets_picture/detect_track_keypoint/image-93.png)     
+
+ 3.先验框在哪一步会进行调整？    
+答：在YOLO网络里面，一张图片进入模型编码之后会输出三个feature map(特征层），分别用小特征层(20,20)、中特征层(40,40)和大特征层(80,80)来表示。   
+其中小特征层用于检测大物体，中特征层用于检测中等物体，大特征层用于检测小物体。     
+anchors是在特征层上进行调整的，但最开始的anchors是相对于原图的，我们需要将anchors的大小以及物体的中心也对应到feature map上。我们可以从feature map上获取到物体中心以及框的宽高的偏移量offset_x, offset_y, offset_w, offset_h, 然后根据偏移量对先验框进行调整。     
+
+ 特征层上：一共9个anchors，有3层特征层， 所以每层3个先验框    
+
+在训练过程中，对anchors的调整是在求loss前会对anchors进行调整，然后用调整后的anchors和真实框来计算loss_iou。    
+yolo过了模型之后有三个feature map，所以每个feature map上一个物体有三个anchor，在对anchors进行调整的时候会吧feature map的值调整到0~1之间，这是因为在feature map上每个网格的长度默认为1.   
+
+k-means clustering algorithm 是一种迭代求解的聚类分析算法，其步骤是，预将数据分为 K 组，则随机选取 K 个对象作为初始的聚类中心，然后计算每个对象与各个种子聚类中心之间的距离（相似程度），把每个对象分配给距离它最近的聚类中心。     
+聚类中心以及分配给它们的对象就代表一个聚类。每分配一个样本，聚类的聚类中心会根据聚类中现有的对象被重新计算。这个过程将不断重复直到满足某个终止条件。终止条件可以是以下任何一个：   
+没有（或最小数目）对象被重新分配给不同的聚类。   
+没有（或最小数目）聚类中心再发生变化。   
+误差平方和局部最小。   
+
+有两点需要进行注意：   
+如何定义样本之间的距离（相似程度）？虽然最常见的是欧氏距离，但是也要根据场景去设计。   
+如何确定 K 的取值？一共分为多少类，根据先验知识？根据场景？还是聚类过程中进行确定？   
+
+YOLOv2 中的 K-means 算法   
+Faster R-CNN 使用的 Anchors 都是作者通过工程经验人为设计的， 但并没有给出设计的过程和细节。YOLOv2 论文中作者提到说：如果我们一开始就选择了合适的 Anchors，那么网络就更容易去学习如何进行好的预测。那如何评价什么是好的 Anchors 呢？YOLOv2 论文作者通过计算所有目标 GT boxes 与 Anchors 的最大 IOU 的均值作为指标，记为 Avg IOU， 其越大代表得到的 Anchors 越好。    
+
+        The network can learn to adjust the boxes appropriately but if we pick better priors for the network to start with we can make it easier for the network to learn to predict good detections.   
+YOLOv2 中是怎么利用 k-means 聚类算法得到 Anchors 的呢 ? 作者对比了 k=5 和 k=9 的情况，最后为了计算量的取舍选择了 k=5。另一个核心问题是如何定义样本之间的距离。YOLOv2 论文中作者提到说：直接使用欧式距离其实并不好。因为衡量指标为 Avg IOU，所以选择 1-IOU(bboxes, anchors) 表示距离，如果 bbox 与对应的簇中心（Anchor）IOU 越大，则距离越近（1-IOU(bboxes, anchors)越小）。     
+
+下展示使用k-means算法，1-IOU(bboxes, anchors) 作为样本之间的距离进行聚类的代码示例，    
+Step1: 在所有的 bboxes 中随机挑选 k 个作为簇的中心 (Anchors)   
+Step2: 计算每个 bboxes 离每个簇中心的距离 1-IOU(bboxes, Anchors)    
+Step3: 计算每个 bboxes 距离最近的簇中心，并分配到离它最近的簇中    
+Step4: 根据每个簇中的 bboxes 重新计算簇中心(Anchors)，这里默认使用的是计算中值，自己也可以改成其他方法    
+Step5: 重复 Step3 和 Step4 直到每个簇中元素不在发生变化     
+
+YOLOv5 中的 K-means 算法    
+YOLOv5 实际还不是直接使用欧氏距离的结果，而是经过了 Genetic Algorithm 遗传算法进行变异的结果。    
+
+如果不是使用 1-IOU(bboxes, anchors) 作为距离指标，而是使用 GIoU，DIoU，或者 CIoU 呢？？？？        
+
+
+
+
+### 感受野（Receptive Field）：    
+为什么是小尺寸特征图用于检测大尺寸物体？   
+![alt text](assets_picture/detect_track_keypoint/image-34.png)    
+做目标检测任务分为两个子任务：分类和边框回归。    
+图像上的某一块区域大小影响到某个神经元的输出，这个区域大小就是这个神经元的感受野大小。根据CNN的结构特点，层数越深，对应的感受野越大，比如经典的分类网络，最后的输出神经元感受野达到了整张图像大小，需要有看到整张图像的能力才能做全局的分类。      
+
+另外由于监督学习模式，越深的层得到的特征越抽象（高级），越浅的层特征越细节（低级）。深层的特征由于平移不变性（translation invariance）,已经丢掉了很多位置信息。    
+分类要求特征有较多的高级信息，回归（定位）要求特征包含更过的细节信息，这两种要求在同一个特征图（feature map）上很难同时兼得。     
+因此，大的特征图由于感受野较小，同时特征包含位置信息丰富，适合检测小物体。       
+
+就比如物体是一只狗但感受野只有能看到躯干的大小，这样会大概率认为是只猫，这是感受野太小；在世界地图上想找到北京，这就是感受野太大；不管太大还是太小都不好。那么尽量让物体的scale和感受野保持一个合适的固定的比例是一个解决方法。这个固定的比例是多大呢，需要引出有效感受野的概念，这方面的研究也不少。前面说到浅层特征缺少抽象信息，而这些信息对分类很重要，因此说浅层特征检测小物体也有其值得提升的地方。FPN就是将高级和低级特征融合来增强浅层特征的高级特征信息。  
+
+经典的目标检测如Faster R-CNN, YOLOv3等都用到了Anchor, 怎么设计Anchor每个目标检测方法各不相同。Faster R-CNN中的Anchor有三种形状，三种长宽比，比如形状有[128, 256, 512]三个，长宽比有[1:1, 1:2, 2:1]三种，这样组合就是9个anchor。YOLOv3中的Anchor是通过K-Means聚类得到的。这些基于anchor的方法的目的是学习一个从Anchor到GT Box的转换函数      
+Anchor一般是通过先验进行指定的，Anchor与目标的大小和位置越匹配(IOU>0.5or0.7)，回归效果就会越好。如果小人脸和anchor的IOU过小，就会造成anchor很难回归到GT上，从而导致Recall过低。      
+自己尝试过使用kmeans算法聚类自己数据集的Anchor，之前两个数据，两次聚类，都出现了自己聚类得到的Anchor不如默认的Anchor得到的结果。之前一直不知道原因在哪里。在总结了感受野以后，我觉得可以合理推测，Anchor应该和实际感受野尽量匹配，但是实际感受野实际上是一个超参数，通过聚类得到的anchor有一定代表性，但是效果反而不如默认的anchor，这是因为我们自己聚类得到的Anchor的范围实际上没有默认的广。          
+
+
+
 感受野（Receptive Field）的定义是卷积神经网络每一层输出的特征图（feature map）上的像素点在输入图片上映射的区域大小。再通俗点的解释是，特征图上的一个点对应输入图上的区域，如图1所示。    
 ![alt text](assets_picture/detect_track_keypoint/image-39.png)    
 图中是个微型CNN，来自Inception-v3论文，原图是为了说明一个conv5x5可以用两个conv3x3代替，从下到上称为第1, 2, 3层：    
+  Q1:既然两次3*3卷积后得到一个5*5感受野的特征图，为什么不用一个5*5的卷积核进行一次卷积
+
+        一个5*5卷积所需参数 5*5*1=25
+
+        两个3*3卷积所需参数2*(3*3*1)=18
 简而言之：某一层feature map(特性图)中某个位置的特征向量，是由前面某一层固定区域的输入计算出来的，那这个区域就是这个位置的感受野。任意两个层之间都有位置—感受野对应关系，但我们更常用的是feature map层到输入图像的感受野，如目标检测中我们需要知道feature map层每个位置的特征向量对应输入图像哪个区域，以便我们在这个区域中设置anchor，检测该区域内的目标。    
 
 感受野作用
@@ -14,7 +91,181 @@
 密集预测task要求输出像素的感受野足够的大，确保做出决策时没有忽略重要信息，一般也是越深越好     
 目标检测task中设置anchor要严格对应感受野，anchor太大或偏离感受野都会严重影响检测性能   
 
+感受野计算：     
+![alt text](assets_picture/detect_track_keypoint/1709951878037.png)    
+初始 feature map 层的感受野是1    
+每经过一个conv k x k ,s1的卷积层，感受野 r = r + (k - 1)    
+常用卷积核 k=3 计算倒数第二层感受野 ：r = （原始感受野1 * step1) + (卷积核3-step1) = 3    
 
+每经过一个conv k x k, s2的卷积层或max/avg pooling层，感受野 r = (r x 2) + (k -2)，   
+常用卷积核k=3, s=2，感受野 r = r x 2 + 1，卷积核k=7, s=2, 感受野r = r x 2 + 5    
+每经过一个maxpool2x2 s2的max/avg pooling下采样层，感受野 r = r x 2    
+特殊情况，经过conv1x1 s1不会改变感受野，经过FC层和Global Average Pooling层，感受野就是整个输入图像   
+经过多分枝的路径，按照感受野最大支路计算，shotcut也一样所以不会改变感受野    
+ReLU, BN，dropout等元素级操作不会影响感受野    
+
+递推公式:    
+![alt text](assets_picture/detect_track_keypoint/1709955214288.png)   
+通项公式:    
+![alt text](assets_picture/detect_track_keypoint/1709955238282.png)      
+建议自己推导的时候使用递推公式，非常方便，代码实现的时候考虑使用通项公式。      
+![alt text](assets_picture/detect_track_keypoint/1709955294361.png)       
+除了最普通的卷积，还有空洞卷积、上采样、BatchNorm、Separable Conv的感受野计算需要补充。      
+![alt text](assets_picture/detect_track_keypoint/1709955351162.png)       
+
+
+理论感受野：某一层feature map中的某一个位置，是由前面某一层固定区域输入计算出来的，那这个固定区域就是这个位置的感受野。
+
+实际感受野： 实际感受野要小于理论感受野,是在NIPS2016中的Understanding the Effective Receptive Field in Deep Convolutional Neural Networks提出的。   
+文章主要贡献有以下几点：    
+并不是感受野内所有像素对输出向量的贡献相同，实际感受野是一个高斯分布，有效感受野仅占理论感受野的一部分      
+可以看出分类和分割任务经过训练后的感受野都有提升，不过提升幅度不太一样。这也说明了神经网络通过学习，扩大了感受也，能够自适应把越来越大的权重放在感受野之外的像素上。也在一定程度上说明更大感受野的必要性。    
+![alt text](assets_picture/detect_track_keypoint/image-40.png)     
+
+上图MobileNet和VGG16准确率相当，但是MobileNet所需计算量却非常小（约为VGG16的27分之1），这是由于MobileNet使用了大量depth-wise Convolution,这样可以以较小的计算代价来增加模型感受野。这个对比可以表明生成更大感受野的网络可以有更好的识别准确率。    
+
+![alt text](assets_picture/detect_track_keypoint/image-41.png)     
+文章中指出了Anchor、理论感受野、实际感受野三者的关系。（a）图中，整个黑色的box是理论感受野，中间的白点是一个高斯分布的实际感受野。（b）图中举了一个例子，黑色点状的框代表是理论感受野的面积，蓝色的代表实际感受野位置，而最合适的anchor就是红色的框，所以关系为：    
+Anchor大小<实际感受野<理论感受野       
+
+### 一般问题
+#### 标签分配     
+YOLOv1   
+标签分配：GT的中心落在哪个grid，那个grid对应的两个bbox中与GT的IOU最大的bbox为正样本，其余为负样本   
+即虽然一个grid分配两个bbox，但是只有一个bbox负责预测一个目标（边框和类别），这样导致YOLOv1最终只能预测7*7=49个目标。   
+
+Each bounding box consists of 5 predictions:x,y,w,h,and confidence. The(x,y)coordinates represent the center of the box relative to the bounds of the grid cell. The width and height are predicted relative to the whole image. Finally the confidence prediction represents the IOU between the predicted box and any ground truth box.    
+物体框中心相对其所在网格单元格边界的位置（一般是相对于单元格左上角坐标点的位置，以下用x，y表示）和检测框真实宽高相对于整幅图像的比例（注意这里w，h不是实际的边界框宽和高），(x, y, w, h)都是归一化之后的数值。   
+一个网格预测2个bbox，在计算损失函数的时候，只取与ground truth box中IoU大的那个预测框来计算损失。   
+这种标签分配方式和边框回归方式产生两个问题：   
+（1）边框回归不准    
+（2）漏检很多   
+
+YOLOv2    
+标签分配：（1）由YOLOv1的7*7个grid变为13*13个grid，划分的grid越多，多个目标中心落在一个grid的情况越少，越不容易漏检；（2）一个grid分配由训练集聚类得来的5个anchor（bbox）；（3）对于一个GT，首先确定其中心落在哪个grid，然后与该grid对应的5个bbox计算IOU，选择IOU最大的bbox负责该GT的预测，即该bbox为正样本；将每一个bbox与所有的GT计算IOU，若Max_IOU小于IOU阈值，则该bbox为负样本，其余的bbox忽略。    
+
+边框回归方式：预测基于grid的偏移量(tx, ty, tw, th)和基于anchor的偏移量(tx, ty, tw, th)，具体体现在loss函数中。   
+基于anchor的偏移量的意思是，anchor的位置是固定的，偏移量=目标位置-anchor的位置。   
+基于grid的偏移量的意思是，grid的位置是固定的，偏移量=目标位置-grid的位置。    
+
+与YOLOv1的不同：
+
+网络输出：YOLOv1是（x, y, w, h），YOLOv2是（tx, ty, tw, th），这就决定了GT也是这种表示形式；    
+loss计算：YOLOv1是直接拿（x, y, w, h）来计算的，YOLOv2是拿（tx, ty, tw, th）来计算的，这就决定了YOLOv1是直接回归，YOLOv2是回归偏移量（offset）；   
+
+对于边界框的预测在沿袭YOLOv1的同时借鉴了Faster R-CNN的思想，其实，对于中心点（x，y）的预测跟YOLOv1原理相同，都是预测相对于grid的位置，只不过其经过了sigmoid函数公式变换，将中心点约束在一个grid内；对于宽高的预测，跟Faster R-CNN的思想一致，学习目标是anchor和GT之间的偏移量（而不直接是GT的宽和高，参考RCNN的计算过程）；    
+
+在YOLOv2中引入anchor思想，主要的贡献是优化了宽高尺度的学习，使宽高有一个更好的先验；而对于中心点的学习不是anchor的贡献，其跟YOLOv1思想一致，不过sigmoid变换的出现，使一开始的训练更稳定；对中心点的计算，没有用到anchor信息。     
+![alt text](assets_picture/detect_track_keypoint/image-94.png)    
+第1,4行是confidence_loss，注意这里的真值为0和IoU(GT, anchor)的值（与v1一致），在v2中confidence的预测值施加了sigmoid函数；    
+第2,3行：t是迭代次数，即前12800步我们计算这个损失，后面不计算了。这部分意义何在？意思是：前12800步我们会优化预测的(x,y,w,h)与anchor的(x,y,w,h)的距离+预测的(x,y,w,h)与GT的(x,y,w,h)的距离，12800步之后就只优化预测的(x,y,w,h)与GT的(x,y,w,h)的距离，也就是刚开始除了对GT的学习还会加一项对于anchor位置的学习，这么做的意义是在一开始预测不准的时候，用上anchor可以加速训练。      
+第一项loss是计算background的置信度误差，但是哪些预测框来预测背景呢，需要先计算各个预测框和所有ground truth的IOU值，并且取最大值Max_IOU，如果该值小于一定的阈值（YOLOv2使用的是0.6），那么这个预测框就标记为background，需要计算noobj的置信度误差。    
+第二项是计算先验框与预测框的坐标误差，但是只在前12800个iterations间计算，我觉得这项应该是在训练前期使预测框快速学习到先验框的形状。     
+第三大项计算与某个ground truth匹配的预测框各部分loss值，包括坐标误差、置信度误差以及分类误差。先说一下匹配原则，对于某个ground truth，首先要确定其中心点要落在哪个cell上，然后计算这个cell的5个先验框与ground truth的IOU值（YOLOv2中bias_match=1），计算IOU值时不考虑坐标，只考虑形状，所以先将先验框与ground truth的中心点都偏移到同一位置（原点），然后计算出对应的IOU值，IOU值最大的那个先验框与ground truth匹配，对应的预测框用来预测这个ground truth？？？？？？？？。    
+在计算obj置信度时，在YOLOv1中target=1，而YOLOv2增加了一个控制参数rescore，当其为1时，target取预测框与ground truth的真实IOU值。对于那些没有与ground truth匹配的先验框（与预测框对应），除去那些Max_IOU低于阈值的，其它的就全部忽略，不计算任何误差。    
+
+v2与v1的主要区别：    
+在v1中，一个grid（两个bbox）只对应预测一个类别，在训练是两个bbox中只有与GT的IOU最大的那个参与学习，即在训练时只有49个bbox在学习（另外49个bbox被当做背景，confidence为0），在测试时虽然两个bbox都输出，但是可想而知只有一个confidence很大，可以被留下，另一个confidence很小，通过阈值就删掉了；    
+在v2中，一个grid中的5个bbox可以分别预测不同的类别，可以说，对于类别的预测，YOLOv1是以grid为单位的，YOLOv2是以bbox（anchor）为单位的，（看loss的差别就知道了）。若两个GT的中心同时落在了一个grid中，每个GT都可以找到一个bbox（anchor）来负责该GT的预测，两个bbox（anchor）可以输出不同的类别，而不是像v1中一个grid只能预测一个目标（类别）。（这里还有一个问题，如果两个GT找到的是同一个anchor该怎么办，作者应该是默认这种极端情况应该几乎不会出现。）   
+YOLOv2中Anchor的概念主要体现在先验框的生成，边框回归中对宽高的回归，以及类别的预测。   
+
+v2与v1的相同点：   
+同样都是一套回归算法的流程，全部采用回归loss；   
+同样都是“负责”的概念，找到负责GT的bbox；    
+
+YOLOv3    
+标签分配：三个特征图一共 8 × 8 × 3 + 16 × 16 × 3 + 32 × 32 × 3 = 4032 个anchor。   
+正例：任取一个ground truth，与4032个anchor全部计算IOU，IOU最大的anchor，即为正例。并且一个anchor，只能分配给一个ground truth。例如第一个ground truth已经匹配了一个正例anchor，那么下一个ground truth，就在余下的4031个anchor中，寻找IOU最大的anchor作为正例。ground truth的先后顺序可忽略。正例产生置信度loss、检测框loss、类别loss。标签为对应的ground truth标签（需要反向编码，使用真实的(x, y, w, h)计算出(tx, ty, tw, th) ）；类别标签对应类别为1，其余为0；置信度标签为1。     
+负例：正例除外（特殊情况：与ground truth计算后IOU最大的anchor，但是IOU小于阈值，仍为正例），与全部ground truth的IOU都小于阈值（0.5）的anchor，则为负例。负例只有置信度产生loss，置信度标签为0。    
+忽略样例：正例除外，与任意一个ground truth的IOU大于阈值（论文中使用0.5）的anchor，则为忽略样例。忽略样例不产生任何loss。    
+
+这样产生的问题是：一个GT只分配一个anchor来进行预测，存在正样本太少的问题，在后面的工作中例如FCOS已经证明了，增加高质量的正样本数量，有利于检测模型的学习。    
+
+边框回归方式：与YOLOv2一致    
+特征图1的Yolov3的损失函数抽象表达式如下：    
+![alt text](assets_picture/detect_track_keypoint/image-95.png)    
+Yolov3 Loss为三个特征图Loss之和：    
+![alt text](assets_picture/detect_track_keypoint/image-96.png)    
+(x, y, w, h)使用MSE作为损失函数，也可以使用smooth L1 loss（出自Faster R-CNN）作为损失函数。smooth L1可以使训练更加平滑。置信度、类别标签由于是0，1二分类，所以使用交叉熵作为损失函数(sigmoid作为激活函数)。      
+
+关于多尺度特征图的标签分配：     
+ground truth为什么不按照中心点分配对应的anchor？（YOLOv1和YOLOv2中“负责”那种思想）      
+（1）在Yolov3的训练策略中，不再像Yolov1那样，每个grid负责中心落在该grid中的ground truth。原因是Yolov3一共产生3个特征图，3个特征图上的grid，中心是有重合的。如果按照YOLOv1和YOLOv2的方式，一个GT的中心点有可能会落在不同尺度上的不同grid中，但是与该GT大小匹配的尺度大多数情况下只有一个。所以Yolov3的训练，不再按照ground truth中心点，严格分配指定grid，而是在所有anchor中寻找与GT的IOU最大的anchor作为正例。        
+（2）在多尺度特征图的标签分配问题中有两种思路，第一种，先根据GT的大小，将GT分配到某个尺度上，然后在该尺度上选IOU最大的作为正例（貌似FCOS是这种思路，具体哪篇论文记不清了）。第二种，直接将GT在3种尺度上，选IOU最大的anchor为正例。总结来说，可以先确定在哪个尺度上选先验，也可以直接在所有尺度上选先验。（论文往往不会把所有的细节都写清楚，但是合理的做法可能有多种，具体是怎么实现的还是以代码为准）        
+
+关于置信度标签分配：      
+YOLOv1和YOLOv2中的置信度标签，就是bbox与GT的IOU，YOLOv3为什么是1？（实际上在YOLOv1和YOLOv2的第三方实现中，有些也是1）    
+（1）置信度意味着该预测框是或者不是一个真实物体，是一个二分类，所以标签是1、0更加合理。       
+（2）YOLO系列中出现了两种方式：第一种：置信度标签取预测框与真实框的IOU；第二种：置信度标签取1。    
+
+YOLOv4      
+标签分配：YOLOv3是1个anchor负责一个GT，YOLO v4中用多个anchor去负责一个GT。   
+对于某个GT来说，计算其与所有anchor的IOU，IOU大于一定阈值（MAX_thresh=0.7）的anchor都设为正样本；    
+如果该GT与所有anchor的IOU都小于阈值（MAX_thresh=0.7），选择IOU最大的为正样本，保持每个GT至少有一个anchor负责预测；       
+如果一个anchor与所有的GT的IOU都小于（MIN_thresh=0.3），则该anchor为负样本；其余的anchor都忽略。    
+
+边框回归方式：与YOLOv2、YOLOv3一致，都是预测（tx, ty, tw, th）
+
+LOSS计算：边框回归loss变为CIOU loss，边框回归loss演进：MSE loss/Smooth L1 loss —— IOU loss —— GIOU loss —— DIOU loss —— CIOU loss     
+置信度loss采用MSE loss；分类loss采用BCE loss。    
+
+5、YOLOv5       
+标签分配：考虑邻域的正样本anchor匹配策略，增加了正样本，参考https://zhuanlan.zhihu.com/p/183838757中loss计算部分。     
+边框回归方式：与之前一致，预测（tx, ty, tw, th）    
+LOSS计算：cls和conf分支都是BCE loss，回归分支采用CIOU loss。     
+
+对于正样本分配来说，可以确定的是，一个GT只对应一个anchor肯定不是最优的，增加正样本的数量可以有效提高目标的学习；        
+对于边框回归/坐标预测来说，可以确定的是，预测偏移量比直接预测坐标要好，将中心点的位置用sigmoid约束在一个grid中可以加速学习；          
+对于loss计算来说，可以确定的是，CIOU loss是目前回归loss最合理的设计，置信度loss可以用MSE loss或者-Log loss，我认为-Log loss更好（可能差距不大），分类loss用BCE loss要优于softmax loss，可以解决多标签的问题。         
+
+yolov5的loss设计和前yolo系列差别比较大的地方就是正样本anchor区域计算，其余地方差距很小。分类分支采用的loss是BCE，conf分支也是BCE，当然可以通过h['fl_gamma']参数开启focal Loss,默认配置没有采用focal los，而bbox分支采用的是Giou loss。       
+对于yolov3计算过程不熟悉的，可以参考目标检测正负样本区分策略和平衡策略总结(一)，里面有详细分析yolov3的loss计算过程。loss的计算非常简单，核心是如何得到loss计算所需的target。      
+
+yolov5的很大区别就是在于正样本区域的定义。？？？？？？？？实现？？？？？？？？？？          
+在yolov3中，其正样本区域也就是anchor匹配策略非常粗暴：保证每个gt bbox一定有一个唯一的anchor进行对应，匹配规则就是IOU最大，并且某个gt一定不可能在三个预测层的某几层上同时进行匹配。，不考虑一个gt bbox对应多个anchor的场合，也不考虑anchor是否设置合理。不考虑一个gt bbox对应多个anchor的场合的设定会导致整体收敛比较慢，在诸多论文研究中表明，例如FCOS和ATSS：增加高质量正样本anchor可以显著加速收敛。         
+
+本文也采用了增加正样本anchor数目的做法来加速收敛，这其实也是yolov5在实践中表明收敛速度非常快的原因。其核心匹配规则为：        
+(1) 对于任何一个输出层，抛弃了基于max iou匹配的规则，而是直接采用shape规则匹配？？？？？？？？？，也就是该bbox和当前层的anchor计算宽高比，如果宽高比例大于设定阈值，则说明该bbox和anchor匹配度不够，将该bbox过滤暂时丢掉，在该层预测中认为是背景     
+(2) 对于剩下的bbox？？？？？？？？？，计算其落在哪个网格内，同时利用四舍五入规则，找出最近的两个网格，将这三个网格都认为是负责预测该bbox的，可以发现粗略估计正样本数相比前yolo系列，至少增加了三倍     
+![alt text](assets_picture/detect_track_keypoint/image-101.png)     
+如上图所示，绿点表示该Bbox中心，现在需要额外考虑其2个最近的邻域网格也作为该bbox的正样本anchor。从这里就可以发现bbox的xy回归分支的取值范围不再是0~1，而是-0.5~1.5(0.5是网格中心偏移，请仔细思考为啥是这个范围)，因为跨网格预测了。        
+
+![alt text](assets_picture/detect_track_keypoint/image-102.png)     
+三张图排布顺序是：0-大输出特征图(stride=8)，1-中等尺度特征图(stride=16)，2-小尺度特征图(stride=32)，分别检测小物体、中等尺寸和大尺度问题。其中红色bbox表示该预测层中的gt bbox，黄色bbox表示该层对应位置的正样本anchor。第一幅图是大输出特征图，只检测小物体，所以人那个bbox标注被当做背景了，并且有三个anchor进行匹配了，其中包括当前网格位置anchor和2个最近邻居anchor。    
+loss设计的思想在图中一目了然)：
+
+(1) 不同于yolov3和v4，其gt bbox可以跨层预测即有些bbox在多个预测层都算正样本
+
+(2) 不同于yolov3和v4，其gt bbox的匹配数范围从3-9个,明显增加了很多正样本(3是因为多引入了两个邻居)
+
+(3) 不同于yolov3和v4，有些gt bbox由于和anchor匹配度不高，而变成背景
+
+![alt text](assets_picture/detect_track_keypoint/image-103.png)    
+![alt text](assets_picture/detect_track_keypoint/image-104.png)      
+作者这种特别暴力增加正样本做法还是存在很大弊端，虽然可以加速收敛，但是由于引入了很多低质量anchor，对最终结果还是有影响的。我相信这个部分作者应该还会优化的。       
+
+遗传算法是最经典的智能优化算法，主要包括选择、交叉和变异三个步骤，先选择一些种子即初始值，然后经过适应度函数(评估函数)得到评估指标，对不错的解进行交叉和变异操作，进行下一次迭代。采用优胜劣汰准则不断进化，得到最优解。但是本文仅仅是模拟了遗传算法思想，因为其只有变异这一个步骤即对第一次运行得到的anchor进行随机变异操作，然后再次计算适应度函数值，选择最好的。        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### 定义：    
 
 目标检测是分类与定位的结合    
 目标检测目前有两类流行算法:  
@@ -362,6 +613,308 @@ x、y、w、h使用MSE作为损失函数，也可以使用smooth L1 loss（出�
 
 ![alt text](assets_picture/detect_track_keypoint/image-37.png)   
 ![alt text](assets_picture/detect_track_keypoint/image-38.png)   
+
+训练策略解释：     
+ground truth为什么不按照中心点分配对应的预测box？   
+（1）在Yolov3的训练策略中，不再像Yolov1那样，每个cell负责中心落在该cell中的ground truth。原因是Yolov3一共产生3个特征图，3个特征图上的cell，中心是有重合的。训练时，可能最契合的是特征图1的第3个box，但是推理的时候特征图2的第1个box置信度最高。所以Yolov3的训练，不再按照ground truth中心点，严格分配指定cell，而是根据预测值寻找IOU最大的预测框作为正例     
+（2）笔者实验结果：第一种，ground truth先从9个先验框中确定最接近的先验框，这样可以确定ground truth所属第几个特征图以及第几个box位置，之后根据中心点进一步分配。第二种，全部4032个输出框直接和ground truth计算IOU，取IOU最高的cell分配ground truth。第二种计算方式的IOU数值，往往都比第一种要高，这样wh与xy的loss较小，网络可以更加关注类别和置信度的学习；其次，在推理时，是按照置信度排序，再进行nms筛选，第二种训练方式，每次给ground truth分配的box都是最契合的box，给这样的box置信度打1的标签，更加合理，最接近的box，在推理时更容易被发现     
+
+Yolov1中的置信度标签，就是预测框与真实框的IOU，Yolov3为什么是1？     
+（1）置信度意味着该预测框是或者不是一个真实物体，是一个二分类，所以标签是1、0更加合理    
+（2）笔者实验结果：第一种：置信度标签取预测框与真实框的IOU；第二种：置信度标签取1。第一种的结果是，在训练时，有些预测框与真实框的IOU极限值就是0.7左右，置信度以0.7作为标签，置信度学习有一些偏差，最后学到的数值是0.5，0.6，那么假设推理时的激活阈值为0.7，这个检测框就被过滤掉了。但是IOU为0.7的预测框，其实已经是比较好的学习样例了。尤其是coco中的小像素物体，几个像素就可能很大程度影响IOU，所以第一种训练方法中，置信度的标签始终很小，无法有效学习，导致检测召回率不高。而检测框趋于收敛，IOU收敛至1，置信度就可以学习到1，这样的设想太过理想化。而使用第二种方法，召回率明显提升了很高    
+
+为什么有忽略样例？    
+（1）忽略样例是Yolov3中的点睛之笔。由于Yolov3使用了多尺度特征图，不同尺度的特征图之间会有重合检测部分。比如有一个真实物体，在训练时被分配到的检测框是特征图1的第三个box，IOU达0.98，此时恰好特征图2的第一个box与该ground truth的IOU达0.95，也检测到了该ground truth，如果此时给其置信度强行打0的标签，网络学习效果会不理想    
+（2）笔者实验结果：如果给全部的忽略样例置信度标签打0，那么最终的loss函数会变成$Loss_{obj}$与$Loss_{noobj}$的拉扯，不管两个loss数值的权重怎么调整，或者网络预测趋向于大多数预测为负例，或者趋向于大多数预测为正例。而加入了忽略样例之后，网络才可以学习区分正负   
+
+优缺点   
+优点：   
+多尺度检测：YOLOv3在三个不同的尺度上进行检测，提高了模型对于不同大小物体的识别能力  
+
+浅层，细粒度，圆角，结构，颜色，板块   
+深层，纹理 ，眼镜，腿，汽车等语义信息   
+类别不确定性（Class Prediction）：在类别预测方面，YOLOv3采用了逻辑回归而非softmax，从而可以更好地处理多标签场景   
+更多的Anchor Boxes：YOLOv3使用了多达9个锚框（分布在三个不同的尺度上），相比YOLOv2更能准确地适应不同形状和大小的目标    
+更大的模型和更深的架构：YOLOv3使用了Darknet-53，一个比YOLOv2的Darknet-19更大、更深的网络架构，以获得更高的准确性   
+新的损失函数：YOLOv3采用了一个新的损失函数，更加注重目标的定位和分类，使模型在多方面都得到了改进
+缺点：    
+小目标检测仍有局限性：尽管YOLOv3通过多尺度检测做了一定程度的改进，但对于小目标的检测准确性相对仍然较低   
+高置信度的错误检测：YOLOv3可能会生成一些高置信度的错误检测，尤其是在目标密集或重叠的场景中   
+对标注质量的依赖：与其他目标检测算法一样，YOLOv3对于高质量的标注数据非常依赖。任何标注错误或不一致都可能对模型性能产生负面影响    
+
+
+### YOLO V4
+![alt text](assets_picture/detect_track_keypoint/image-42.png)     
+
+Yolo-v4：主要由三部分组成： Backbone，Neck和Head    
+![alt text](assets_picture/detect_track_keypoint/image-43.png)    
+![alt text](assets_picture/detect_track_keypoint/image-44.png)        
+
+输入端的创新点：训练时对输入端的改进，主要包括Mosaic数据增强、cmBN、SAT自对抗训练   
+BackBone主干网络：各种方法技巧结合起来，包括：CSPDarknet53、Mish激活函数、Dropblock    
+Neck：目标检测网络在BackBone和最后的输出层之间往往会插入一些层，比如Yolov4中的SPP模块、FPN+PAN结构    
+Prediction：输出层的锚框机制和Yolov3相同，主要改进的是训练时的回归框位置损失函数CIOU_Loss，以及预测框筛选的nms变为DIOU_nms   
+
+Mosaic    
+Yolov4中使用的Mosaic是参考2019年底提出的CutMix数据增强的方式，但CutMix只使用了两张图片进行拼接，而Mosaic数据增强则采用了4张图片，随机缩放、随机裁剪、随机排布的方式进行拼接    
+![alt text](assets_picture/detect_track_keypoint/image-45.png)    
+为什么要进行Mosaic数据增强呢？   
+在平时项目训练时，小目标的AP一般比中目标和大目标低很多。而Coco数据集中也包含大量的小目标，但比较麻烦的是小目标的分布并不均匀。Coco数据集中小目标占比达到41.4%，数量比中目标和大目标都要多。但在所有的训练集图片中，只有52.3%的图片有小目标，而中目标和大目标的分布相对来说更加均匀一些。针对这种状况，Yolov4的作者采用了Mosaic数据增强的方式   
+主要有2个优点：  
+丰富数据集：随机使用4张图片，随机缩放，再随机分布进行拼接，大大丰富了检测数据集，特别是随机缩放增加了很多小目标，让网络的鲁棒性更好   
+
+cmBN   
+CmBN的做法和前面两个都不一样，其把大batch内部的4个mini batch当做一个整体，对外隔离，主要改变在于BN层的统计量计算方面    
+
+SAT自对抗训练   
+自对抗训练（Self-Adversarial Training，简称SAT）在YOLOv4中作为一种数据增强的方式出现。自对抗训练是一种基于生成对抗网络（GAN）中对抗训练概念的扩展。其主要目标是通过改变输入图像，使得网络难以识别，从而迫使网络提高泛化性能   
+在YOLOv4中，自对抗训练的主要步骤如下：     
+前向传播：首先，一个输入图像通过网络进行前向传播  
+计算损失：然后，计算预测与实际标签之间的损失   
+梯度回传：损失向后传播通过网络，以更新其参数  
+对抗性扰动：使用这些梯度来计算一个微小的对抗性扰动，该扰动能够使得损失最大化   
+应用扰动：将计算出的对抗性扰动应用于原始输入图像   
+再次训练：使用添加了对抗性扰动的图像再次进行前向和后向传播，并更新网络参数      
+这个过程旨在提高模型对输入变化的鲁棒性，从而在实际应用中达到更好的性能    
+需要指出的是，生成自对抗样本的具体方法可以有很多种方式，如添加噪声、旋转、缩放、颜色扰动等   
+
+Backbone主干结构    
+![alt text](assets_picture/detect_track_keypoint/image-46.png)
+因为Backbone有5个CSP模块，输入图像是608*608，所以特征图变化的规律是：608->304->152->76->38->19 经过5次CSP模块后得到19-19大小的特征图。而且作者只在Backbone中采用了Mish激活函数，网络后面仍然采用Leaky_relu激活函数   
+YOLOv3的主干网络采用的是darknet53，yolov4 Backbone：采用的主干网络为 CSPDarknet53    
+
+Yolov4网络结构中的最小组件CBM，由Conv+Bn+Mish激活函数三者组成    
+
+CSP模块    
+CSPNet全称是Cross Stage Paritial Network，主要从网络结构设计的角度解决推理中从计算量很大的问题。    
+SPNet的作者认为推理计算过高的问题是由于网络优化中的梯度信息重复导致的。因此采用CSP模块先将基础层的特征映射划分为两部分，然后通过跨阶段层次结构将它们合并，在减少了计算量的同时可以保证准确率    
+![alt text](assets_picture/detect_track_keypoint/image-47.png)    
+由CBM组件和X个Res unint模块Concate组成    
+第一个CSP模块：由CBM组件和1个Res unint模块Concate组成    
+​ 将CBM组件处理后的特征图608-608-32的F_conv2传入第一个CSP1模块进行处理（其中只有1个残差单元）    
+第二个CSP模块：由CBM组件和2个Res unint模块Concate组成    
+将第一个csp模块处理后的304-304-64特征图，传入到第二个CSP模块处理    
+同理经过下采样后变成了152152128的特征图，然后分别经过两个1164的s=1的卷积后得到两个分支，其中一个分支的特征块进入残差模块进行处理后，再与另一个分支进行拼接，最后第二个csp模块的最后输出是152-152-128 （残差模块中的卷积层：1-1-64和3-3-64）   
+第三个CSP模块：由8个Res unint模块和CBM组件Concate组成   
+将第二个csp模块处理后的52-152-128 的特征图，传入到第三个个CSP模块处理    
+同理也是经过同样的操作，最后第三个csp模块的最后输出是76-76-256 （残差模块中的卷积层：1-1-128和3-3-128），这个模块后又分为两个分支，一个分支继续进行csp模块处理，另一个分支直接进入到neck处理    
+第四个CSP模块：由8个Res unint模块和CBM组件Concate组成    
+将第三个csp模块的一个分支76-76-256的特征图，传入到第四个CSP模块处理    
+同理也是经过同样的操作，最后第四个csp模块的最后输出是38-38-512 （残差模块中的卷积层：1-1-256和 3-3-256），这个模块后又分为两个分支，一个分支继续进行csp模块处理，另一个分支直接进入到neck处理    
+第五个CSP模块：由4个Res unint模块和CBM组件Concate组成    
+将第四个csp模块的一个分支38-38-512的特征图，传入到第五个CSP模块处理    
+同理也是经过同样的操作，最后第五个csp模块的最后输出是19-19-1024 （残差模块中的卷积层：1-1-512和3-3-512），这个模块输出结果直接进入到neck处理     
+
+
+Dropblock    
+Yolov4中使用的Dropblock，其实和常见网络中的Dropout功能类似，也是缓解过拟合的一种正则化方式   
+传统的Dropout很简单，一句话就可以说的清：随机删除减少神经元的数量，使网络变得更简单    
+dropout主要作用在全连接层，而dropblock可以作用在任何卷积层之上    
+文章分析了传统 dropout 在 conv 上效果不好的原因: conv 具有空间相关性，所以即使对一些单元随机进行 dropout,仍然可以有信息流向后面的网络,导致 dropout 不彻底     
+中间Dropout的方式会随机的删减丢弃一些信息，但Dropblock的研究者认为，卷积层对于这种随机丢弃并不敏感，因为卷积层通常是三层连用：卷积+激活+池化层，池化层本身就是对相邻单元起作用。而且即使随机丢弃，卷积层仍然可以从相邻的激活单元学习到相同的信息     
+
+neck   
+特征增强模块，主要由CBL组件，SPP模块和FPN+PAN的方式组成    
+![alt text](assets_picture/detect_track_keypoint/image-48.png)    
+CBL组件：    
+由Conv+Bn+Leaky_relu激活函数三者组成    
+将第五个csp4模块的输出结果19-19-1024的特征图，传入到CBL组件中处理    
+spp前后三个CBL组件是对称的，它们的卷积分别是1-1-512,3-3-1024和1-1-512，步长都是1    
+
+SPP模块：   
+采用1×1，5×5，9×9，13×13的最大池化的方式，进行多尺度融合      
+spp模块采用的1×1 ，5×5 padding=5 // 2，9×9 padding=9 // 2，13×13 padding=13 // 2的最大池化的方式，进行多尺度融合，从前面三个CBL组件输出的结果：1919512的特征图，将之送入spp模块中，最后的结果为19192048，再经过三个CBL组件的卷积后得到1919512的特征图    
+
+FPN+PAN的结构：   
+PAN是借鉴图像分割领域PANet的创新点    
+![alt text](assets_picture/detect_track_keypoint/image-49.png)     
+这样结合操作，FPN层自顶向下传达强语义特征，而PAN则自底向上传达强定位特征，两两联手，从不同的主干层对不同的检测层进行参数聚合，加速了不同尺度特征的融合，进一步提高特征提取的能力    
+FPN+PAN借鉴的是18年CVPR的PANet，当时主要应用于图像分割领域，但Alexey将其拆分应用到Yolov4中，进一步提高特征提取的能力    
+原本的PANet网络的PAN结构中，两个特征图结合是采用shortcut操作，而Yolov4中则采用concat（route）操作，特征图融合后的尺寸发生了变化    
+![alt text](assets_picture/detect_track_keypoint/image-50.png)   
+
+Head   
+先验框（anchor box）  
+YOLO3采用了K-means聚类得到先验框的尺寸，YOLO4延续了这种方法，为每种下采样尺度设定3种先验框，总共聚类出9种尺寸的先验框    
+![alt text](assets_picture/detect_track_keypoint/image-51.png)   
+置信度解码   
+物体的检测置信度,置信度在输出85维中占固定一位，由sigmoid函数解码即可，解码之后数值区间在[0，1]中  
+类别解码    
+COCO数据集有80个类别，所以类别数在85维输出中占了80维，每一维独立代表一个类别的置信度。使用sigmoid激活函数替代了Yolov2中的softmax，取消了类别之间的互斥，可以使网络更加灵活   
+筛选预测框    
+三个特征图一共可以解码出 19 × 19 × 3 + 38 × 38× 3 + 76 × 76 × 3 = 22743个box以及相应的类别、置信度。 首先，设置一个置信度阈值，筛选掉低于阈值的box，再经过DIOU_NMS（非极大值抑制）后，就可以输出整个网络的预测结果了   
+
+#### iou
+IOU 作为损失函数会出现的问题(缺点) 如果两个框没有相交，根据定义，loU=0，不能反映两者的距离大小(重合度)。同时因为 loss=0，没有梯度回传，无法进行学习训练。loU 无法精确的反映两者的重合度大小。   
+如下图所示，三种情况 loU 都相等，但看得出来他们的重合度是不一样的，左边的图回归的效果最好，右边的最差–水平线–旋转   
+![alt text](assets_picture/detect_track_keypoint/image-52.png)   
+由于 loU 是比值的概念，对目标物体的 scale 是不敏感的。然而检测任务中的 BBox 的回归损失(MSE loss,11-smooth loss 等)优化和loU 优化不是完全等价的，而且 Ln 范数对物体的 scale 也比较敏感，loU 无法直接优化没有重叠的部分    
+GIoU：   
+![alt text](assets_picture/detect_track_keypoint/1709973322219.png)    
+上面公式的意思是:先计算两个框的最小闭包区域面积[公式1(通俗理解:同时包含预测框和真实框的最小框的面积)，再计算出 loU，再计算闭包区域中不属于两个框的区域占闭包区域的比重，最后用 loU 减去这个比重得到 GIOU。    
+特性 1.与loU 相似，GloU 也是一种距离度量，作为损失函数的话， [公式1,满足损失函数的基本要求 2.GloU 对 scale 不敏感 3.GloU 是 loU 的下界，在两个框无限重合的情况下，loU=GloU=1
+4 loU 取值[0,1]，但 GloU 有对称区间，取值范围[-1,1]。在两者重合的时候取最大值 1.4.在两者无交集且无限远的时候取最小值-1，因此 GloU 是一个非常好的距离度量指标5.与loU 只关注重叠区域不同，GloU 不仅关注重叠区域，还关注其他的非重合区域，能更好的反映两者的重合度。    
+
+DIoU:   
+![alt text](assets_picture/detect_track_keypoint/image-53.png)    
+DloU 要比 Glou 更加符合目标框回归的机制，将目标与 anchor 之间的距离，重叠率以及尺度都考虑进去，使得目标框回归变得更加稳定，不会像 U 和 GloU 一样出现训练过程中发散等问题。    
+![alt text](assets_picture/detect_track_keypoint/1709973597026.png)    
+其中，b，b“分别代表了预测框和真实框的中心点，且p代表的是计算两个中心点间的欧式距离。c代表的是能够同时包含预测框和真实框的最小闭包区域的对角线距离.    
+![alt text](assets_picture/detect_track_keypoint/image-54.png)   
+优点 与 GloU loss 类似，DloU loss ( [公式] ) 在与目标框不重叠时，仍然可以为边界框提供移动方向。 DloU loss 可以直接最小化两个目标框的距离，因此比 GloU loss 收敛快得多    
+
+CIoU：   
+论文考虑到 bbox 回归三要素中的长宽比还没被考虑到计算中，因此，进一步在 DIoU的基础上提出了 CloU。   
+论文中，作者表示一个优秀的回归定位损失应该考虑三种几何参数：重叠面积、中心点距离、长宽比。CIoU就是在DIoU的基础上增加了检测框尺度的loss，增加了长和宽的loss，这样预测框就会更加的符合真实框。    
+![alt text](assets_picture/detect_track_keypoint/image-55.png)    
+a 是权重函数   
+v用来度量长宽比的相似性     
+![alt text](assets_picture/detect_track_keypoint/image-56.png)    
+实际检测效果中，CIOU相比GIOU在框选目标时，能找到一个更合适的框选位置。如上图所示，第一行的两张图中，第一个猫猫使用GIOU损失函数，发现有一只猫耳朵在框外，第二只猫猫使用DIOU损失函数，将猫猫的位置准确标出。同样，第二行中，第一只狗狗虽然完整标出，但并不能准确框出狗狗的轮廓，而第二张图检测框的位置刚好合适。   
+
+SAM（空间注意力机制）   
+YOLOv4 中的 SAM（Spatial Attention Module）是一个设计用来改进特征表达的组件。空间注意力机制的核心思想是在各个空间位置上动态地重新调整特征图（Feature Map），使模型能够更加关注那些对于目标任务更为重要的区域    
+具体来说，SAM 通过**学习一个空间注意力图**???????（Spatial Attention Map），该图与输入的特征图有相同的空间维度（宽度和高度），但每个位置的值范围在 0 到 1 之间。这个注意力图然后与原始的特征图进行逐元素的乘法运算（element-wise multiplication），以此来重新调整特征图的每个空间位置的重要性????      
+这种机制允许模型在不同的任务和数据集上有更好的泛化性能，尤其是在目标尺寸、形状或姿态变化很大的情况下。通过引入空间注意力机制，YOLOv4 能够更加准确地检测各种各样的对象，从而提高整体的目标检测性能????    
+![alt text](assets_picture/detect_track_keypoint/image-57.png)    
+
+类别不平衡问题(Focal Loss )    
+主要用于解决目标检测中的类别不平衡问题。Focal Loss 动态地调整损失函数，在训练过程中降低容易分类样本的权重，从而让模型更加关注难以分类的样本。该损失函数降低了大量简单负样本在训练中所占的权重，也可理解为一种困难样本挖掘。     
+![alt text](assets_picture/detect_track_keypoint/1709975546928.png)    
+加 alpha 虽然可以平衡正负样本的重要性，但是无法解决简单与困难样本的问题     
+gamma 调节简单样本权重降低的速率，当 gamma为0 时即为交叉损失函数，当gamma 增加时，调整因子的影响也在增加。实验发现 gamma 为 2 是最优    
+例如 gamma为2,对于正类样本而言,预测结果为0.95肯定是简单样本,所以(1-0.95)的 gamma 次方就会很小，这时损失函数值就变得更小。而预测概率为 0.3 的样本其损失相对很大。对于负类样本而言同样，预测 0.1 的结果应当远比预测 0.7 的样本损失值要小得多。对于预测概率为 0.5 时，损失只减少了 0.25 倍，所以更加关注于这种难以区分的样本。这样减少了简单样本的影响，大量预测概率很小的样本叠加起来后的效应才可能比较有效。    
+
+计算损失   
+
+位置损失    
+![alt text](assets_picture/detect_track_keypoint/1709975633470.png)    
+
+置信度损失    
+置信度损失分为两个部分，有目标的置信度损失，无目标的置信度损失    
+置信度损失：采用二元交叉熵损失   
+有目标的置信度损失   
+![alt text](assets_picture/detect_track_keypoint/1709975677783.png)   
+无目标的置信度损失   
+![alt text](assets_picture/detect_track_keypoint/1709975714718.png)    
+
+分类损失：   
+![alt text](assets_picture/detect_track_keypoint/1709975779285.png)    
+
+![alt text](assets_picture/detect_track_keypoint/1709975802238.png)   
+![alt text](assets_picture/detect_track_keypoint/image-58.png)    
+
+优缺点    
+优点：   
+CIOU Loss（Complete Intersection over Union）：这是一种改进的损失函数，用于解决传统IoU损失的一些问题，从而提高模型对目标定位的准确性    
+PANet（Path Aggregation Network）和 SAM block：这些结构改进了特征传播和模型的注意力机制    
+Mish 激活函数：这是一种替代 ReLU 的新型激活函数，旨在改进模型的训练稳定性和性能    
+CSPDarknet53：这是一种更有效的特征提取网络，比起其他如 VGG 和 ResNet 等网络结构，它具有更高的运算效率
+使用多尺度和多宽高比的锚点：这改进了对不同形状和大小的目标的检测能力    
+缺点：    
+计算复杂性：尽管 YOLOv4 针对速度进行了优化，但其模型结构仍然相当复杂，可能不适用于资源受限的硬件   
+可解释性与透明度：YOLOv4 的模型结构和算法相对复杂，这可能影响模型的可解释性和透明度    
+易用性和训练稳定性：由于模型结构和损失函数更为复杂，对于一般用户来说，训练一个稳定和高性能的 YOLOv4 模型可能需要更多的专业知识和经验    
+
+
+### YOLO V5
+![alt text](assets_picture/detect_track_keypoint/image-59.png)    
+![alt text](assets_picture/detect_track_keypoint/image-60.png)    
+YOLO v5中的改进点：   
+输入端： 数据增强(Mosaic Augmentation、MixUp、CutMix、Bluring、Label Smoothing等)、自适应锚框计算、自适应的图像缩放    
+BackBone骨干网络: Focus结构、CSP+DarkNet等   
+Neck：FPN+PAN、SPP等    
+Prediction：更换边框回归损失函数(GIoU_LOSS)    
+
+![alt text](assets_picture/detect_track_keypoint/image-61.png)   
+![alt text](assets_picture/detect_track_keypoint/image-62.png)    
+![alt text](assets_picture/detect_track_keypoint/image-63.png)    
+![alt text](assets_picture/detect_track_keypoint/image-64.png)    
+![alt text](assets_picture/detect_track_keypoint/image-65.png)    
+![alt text](assets_picture/detect_track_keypoint/image-66.png)    
+![alt text](assets_picture/detect_track_keypoint/image-67.png)    
+?????    
+![alt text](assets_picture/detect_track_keypoint/image-68.png)    
+
+![alt text](assets_picture/detect_track_keypoint/image-69.png)    
+![alt text](assets_picture/detect_track_keypoint/image-70.png)    
+![alt text](assets_picture/detect_track_keypoint/image-71.png)   
+![alt text](assets_picture/detect_track_keypoint/image-72.png)   
+![alt text](assets_picture/detect_track_keypoint/image-73.png)    
+
+大多数分类器假设输出标签是互斥的。如果输出是互斥的目标类别，则确实如此。 因此，YOLO应用softmax函数将得分转换为总和为1的概率。而YOLOv3/v4/v5使用多标签分类。例如，输出标签可以是“行人”和“儿童”，它们不是非排他性的。(现在输出得分的总和可以大于1)    
+YOLOv3/v4/v5用多个独立的逻辑 (logistic) 分类器替换sftmax函数，以计算输入属于特定标签的可能性   
+在计算分类损失进行训练时，YOLOv3/v4/v5对每个标签使用二元交叉熵损失。这也避免使用softmax函数而降低了计算复杂度      
+
+![alt text](assets_picture/detect_track_keypoint/image-74.png)    
+![alt text](assets_picture/detect_track_keypoint/image-75.png)   
+
+![alt text](assets_picture/detect_track_keypoint/image-76.png)    
+![alt text](assets_picture/detect_track_keypoint/image-77.png)   
+![alt text](assets_picture/detect_track_keypoint/image-78.png)    
+![alt text](assets_picture/detect_track_keypoint/image-79.png)    
+
+训练技巧：  
+预热训练   
+![alt text](assets_picture/detect_track_keypoint/image-80.png)   
+余弦退火学习率     
+![alt text](assets_picture/detect_track_keypoint/image-81.png)    
+![alt text](assets_picture/detect_track_keypoint/1709983754006.png)   
+![alt text](assets_picture/detect_track_keypoint/image-82.png)    
+
+自动计算锚框 Autoanchor   
+自动锚只在最佳召回低于阈值时运行((BPR，最大可能召回率,98%)     
+
+超参数进化是一种利用遗传算法进行优化的超参数优化方法   
+
+![alt text](assets_picture/detect_track_keypoint/image-83.png)   
+![alt text](assets_picture/detect_track_keypoint/image-84.png)   
+![alt text](assets_picture/detect_track_keypoint/image-85.png)    
+Mixup    
+Mixup 是一种数据增强方法，通过对两张图像以及其相应标签的线性组合来生成新的训练样本     
+![alt text](assets_picture/detect_track_keypoint/1709985607304.png)    
+Cutout   
+Cutout 是另一种数据增强方法，通过随机选取图像上的一块区域，并将其像素值设置为0（或其他固定值）来工作。直观地，这种方法强迫模型学习到更多的上下文信息，而不仅仅是依赖于局部特征   
+CutMix    
+CutMix是Mixup 和Cutout 的一个组合。它选取两张不同的图像，并从一张图像中裁剪一个随机区域，然后将其粘贴到另一张图像上    
+数学描述如下：   
+随机选择一个矩形区域R从图像A中    
+删除图像B在相同区域R的内容     
+将从A中裁剪的区域R粘贴到B中    
+标签也是一个加权组合：    
+![alt text](assets_picture/detect_track_keypoint/1709985715402.png)    
+
+骨架网络如下：      
+![alt text](assets_picture/detect_track_keypoint/image-97.png)      
+from意思是当前模块输入来自哪一层输出，和darknet里面一致，number是本模块重复次数，后面对应的是模块名称和输入参数。由于本份配置其实没有分neck模块，故spp也写在了backbone部分。        
+
+作者提出了一个新模块Focus(其余模块都是yolov4里面提到的)，源码如下：       
+![alt text](assets_picture/detect_track_keypoint/image-98.png)       
+这个其实就是yolov2里面的ReOrg+Conv操作，也是亚像素卷积的反向操作版本，简单来说就是把数据切分为4份，每份数据都是相当于2倍下采样得到的，然后在channel维度进行拼接，最后进行卷积操作。      
+![alt text](assets_picture/detect_track_keypoint/image-99.png)        
+其最大好处是可以最大程度的减少信息损失而进行下采样操作。    
+
+head部分配置如下所示        
+![alt text](assets_picture/detect_track_keypoint/image-100.png)      
+作者没有分neck模块，所以head部分包含了PANet+head(Detect)部分。      
+
+
+### YOLOV6
+三个特征图的loss是怎么计算，直接合并还是取其中最大的?，推理时是取置信度最大吗？    
+![alt text](assets_picture/detect_track_keypoint/image-86.png)     
+![alt text](assets_picture/detect_track_keypoint/image-87.png)     
+![alt text](assets_picture/detect_track_keypoint/image-88.png)     
+
+
+### YOLOV7
+![alt text](assets_picture/detect_track_keypoint/image-89.png)    
+
+### YOLOV8
+标签分类策略是什么？怎么起作用的？      
+![alt text](assets_picture/detect_track_keypoint/image-90.png)     
+
+![alt text](assets_picture/detect_track_keypoint/image-91.png)
+
 
 
 
