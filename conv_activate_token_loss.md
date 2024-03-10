@@ -517,6 +517,24 @@ ROC（Receiver Operating Characteristic）曲线是以假正率（FP_rate）和�
 
 PR曲线：   
 假设N_c>>P_c（即Negative的数量远远大于Positive的数量），若FP很大，即有很多N的sample被预测为P，因为FP_{rate}=FP/N_c ，因此FP_rate的值仍然很小（如果利用ROC曲线则会判断其性能很好，但是实际上其性能并不好），但是如果利用PR，因为Precision综合考虑了TP和FP的值，因此在极度不平衡的数据下（Positive的样本较少），PR曲线可能比ROC曲线更实用。
+![alt text](assets_picture/conv_activate_token_loss/image-12.png)         
+简单来说，AP就是PR曲线与坐标轴围成的面积，可表示为，    
+![alt text](assets_picture/conv_activate_token_loss/image-13.png)         
+实际计算中，我们并不直接对该PR曲线进行计算，而是对PR曲线进行平滑处理。即对PR曲线上的每个点，Precision的值取该点右侧最大的Precision的值，如下图所示。      
+![alt text](assets_picture/conv_activate_token_loss/image-14.png)     
+
+锚框Anchor：最初的YOLO模型相对简单，没有采用锚点，而最先进的模型则依赖于带有锚点的两阶段检测器。YOLOv2采用了锚点，从而提高了边界盒的预测精度。这种趋势持续了五年，直到YOLOX引入了一个无锚的方法，取得了最先进的结果。从那时起，随后的YOLO版本已经放弃了锚的使用；    
+骨干网络Backbone：YOLO模型的骨干架构随着时间的推移发生了重大变化。从由简单的卷积层和最大集合层组成的Darknet架构开始，后来的模型在YOLOv4中加入了跨阶段部分连接（CSP），在YOLOv6和YOLOv7中加入了重新参数化，并在DAMO-YOLO中加入了神经架构搜索；     
+
+![alt text](assets_picture/conv_activate_token_loss/image-15.png)       
+![alt text](assets_picture/conv_activate_token_loss/image-16.png)        
+
+
+
+
+
+
+
 
 ## NAFNet -- Nonlinear Activation Free Network
 ![Alt text](assets_picture/conv/image-16.png)   
