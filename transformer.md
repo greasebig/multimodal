@@ -1,5 +1,6 @@
 # transformer  
-  
+怎么手写公式？？？？       
+
   2017  
   
   Transformer的知名应用——BERT——无监督的训练的Transformer  

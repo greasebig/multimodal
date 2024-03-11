@@ -1064,6 +1064,21 @@ $ S_t = \alpha \cdot x_t + (1 - \alpha) \cdot S_{t-1} $
 在代码中，对于给定的 \( \alpha \) 值，可以使用上述公式通过迭代计算来更新EMA。
 
 
+## 上采样方法
+hrnet 和 sd的unet 都是采用最近邻插值
+下采样都使用conv            
+
+常见的上采样方法有双线性插值、转置卷积、上采样（unsampling）和上池化（unpooling）。
+
+其中前两种方法较为常见，后两种用得较少。
+
+反卷积也叫转置卷积    
+![alt text](assets_picture/conv_activate_token_loss/image-19.png)       
+
+
+
+
+
 ## 标签平滑（Label Smoothing）
 标签平滑（Label smoothing），像L1、L2和dropout一样，是机器学习领域的一种正则化方法，通常用于分类问题，目的是防止模型在训练时过于自信地预测标签，改善泛化能力差的问题。      
 Label smoothing将hard label转变成soft label    
