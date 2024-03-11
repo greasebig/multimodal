@@ -1,3 +1,71 @@
+# Loss and optimizer
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+ 
+ 
+# Train the model
+total_step = len(train_loader)
+for epoch in range(num_epochs):
+    for i ,(images, labels) in enumerate(train_loader):
+        images = images.to(device)
+        labels = labels.to(device)
+ 
+ 
+        # Forward pass
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+ 
+ 
+        # Backward and optimizer
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+ 
+ 
+        if (i+1) % 100 == 0:
+            print('Epoch: [{}/{}], Step: [{}/{}], Loss: {}'
+                  .format(epoch+1, num_epochs, i+1, total_step, loss.item()))
+
+
+
+class MyLoss(torch.nn.Moudle):
+    def __init__(self):
+        super(MyLoss, self).__init__()
+ 
+ 
+    def forward(self, x, y):
+        loss = torch.mean((x - y) ** 2)
+        return loss
+
+# 自定义数据集类：
+from torch.utils.data import Dataset
+from PIL import Image
+
+class CustomDataset(Dataset):
+    def __init__(self, data_path, transform=None):
+        self.data_path = data_path
+        self.transform = transform
+        # Add any additional initialization logic here
+
+    def __len__(self):
+        # Return the total number of samples in the dataset
+        pass
+
+    def __getitem__(self, idx):
+        # Load and preprocess the sample at the given index
+        pass
+
+'''
+
+pytorch常用工具模块：
+数据。数据集对象被抽象为Dataset类，自定义需要继承Dataset类，并实现两个方法：
+__getitem__:返回一条数据，或一个样本。obj[idx]等价于obj.__getitem__(idex)
+__len__:返回样本数量。len(obj)等价于obj.__len__()
+Dataset只负责数据的抽象，一次调用__getitem__只返回一个样本。若对batch操作或者对数据shuffle和并行加速，需要使用DataLoader
+'''
+
+
+
 '''
 定义神经网络模型：
 使用torch.nn.Module创建一个继承类，定义神经网络的结构。

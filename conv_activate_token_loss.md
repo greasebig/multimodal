@@ -1,7 +1,21 @@
 # 计算
 
 ## conv2d计算
-输出大小  
+torch.nn.Conv2d(
+	in_channels, 
+	out_channels, 
+	kernel_size, 
+	stride=1, 
+	padding=0, 
+	dilation=1, 
+	groups=1, 
+	bias=True, 
+	padding_mode='zeros', 
+	device=None, 
+	dtype=None
+)          
+
+输出大小    
 ![Alt text](assets_picture/conv/image.png)    
 ![Alt text](assets_picture/conv/image-1.png)    
 
@@ -1050,12 +1064,21 @@ $ S_t = \alpha \cdot x_t + (1 - \alpha) \cdot S_{t-1} $
 在代码中，对于给定的 \( \alpha \) 值，可以使用上述公式通过迭代计算来更新EMA。
 
 
+## 标签平滑（Label Smoothing）
+标签平滑（Label smoothing），像L1、L2和dropout一样，是机器学习领域的一种正则化方法，通常用于分类问题，目的是防止模型在训练时过于自信地预测标签，改善泛化能力差的问题。      
+Label smoothing将hard label转变成soft label    
+![alt text](assets_picture/conv_activate_token_loss/image-17.png)       
+![alt text](assets_picture/conv_activate_token_loss/image-18.png)    
+而过大的logit差值会使模型缺乏适应性，对它的预测过于自信。在训练数据不足以覆盖所有情况下，这就会导致网络过拟合，泛化能力差，而且实际上有些标注数据不一定准确，这时候使用交叉熵损失函数作为目标函数也不一定是最优的了。      
+这样，标签平滑后的分布就相当于往真实分布中加入了噪声       
+Label Smoothing 劣势：       
+单纯地添加随机噪音，也无法反映标签之间的关系，因此对模型的提升有限，甚至有欠拟合的风险。   
+它对构建将来作为教师的网络没有用处，hard 目标训练将产生一个更好的教师神经网络。     
 
 
-## torch常用操作，代码
-.squeeze(0) 是对图像进行操作的一部分。在这里，squeeze 函数用于删除数组的长度为1的维度。在这种情况下，squeeze(0) 的目的是从图像的第一个维度（通常是通道数）中删除大小为1的维度，以便获得一个更简化的表示。      
 
-.unsqueeze(0)在最前面加一个维度        
+
+       
 
 
 
