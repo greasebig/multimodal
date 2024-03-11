@@ -2,6 +2,230 @@
 # 检测
 
 ## 检测原理
+### 标签匹配策略
+CVPR2020中的文章ATSS揭露到anchor-based和anchor-free的目标检测算法之间的效果差异原因是由于正负样本的选择造成的。而在目标检测算法中正负样本的选择是由gt与anchor之间的匹配策略决定的。      
+
+1、Anchor机制
+对于YOLOv5，Anchor对应与Yolov3则恰恰相反，对于所设置的Anchor：
+
+第一个Yolo层是最大的特征图40×40，对应最小的anchor box。
+第二个Yolo层是中等的特征图20×20，对应中等的anchor box。
+第三个Yolo层是最小的特征图10×10，对应最大的anchor box。
+
+    # anchors:
+    #   - [10,13, 16,30, 33,23]  # P3/8
+    #   - [30,61, 62,45, 59,119]  # P4/16
+    #   - [116,90, 156,198, 373,326]  # P5/32
+
+2、样本匹配策略         
+在yolo v3&v4中，Anchor匹配策略和SSD、Faster RCNN类似：保证每个gt bbox有一个唯一的Anchor进行对应，匹配规则就是IOU最大，并且某个gt不能在三个预测层的某几层上同时进行匹配。不考虑一个gt bbox对应多个Anchor的场合，也不考虑Anchor是否设置合理。     
+
+这里先说一下YOLOv3的匹配策略：
+
+假设一个图中有一个目标，这个被分割成三种格子的形式，分割成13×13 、26 × 26、52 × 52 。
+
+这个目标中心坐标下采样8倍，（416/8=52），会落在 52 × 52 这个分支的所有格子中的某一个格子，落在的格子会产生3个anchor，3个anchor和目标（已经下采样8倍的目标框）分别计算iou，得到3个iou，凡是iou大于阈值0.3的，就记为正样本，就会将label[0]中这个iou大于0.3的anchor的相应位置 赋上真实框的值。
+
+这个目标中心坐标下采样16倍，（416/16=26），会落在 26 × 26 这个分支的所有格子中的某一个格子，落在的格子会产生3个anchor，3个anchor和目标（已经下采样16倍的目标框）分别计算iou，得到三个iou，凡是iou大于阈值0.3的，就记为正样本，就会将label[1]中这个iou大于0.3的anchor的相应位置 赋上真实框的值。
+
+这个目标中心坐标下采样32倍，（416/32=13），会落在 13 × 13 这个分支的所有格子中的某一个格子，落在的格子会产生3个anchor，3个anchor和目标（已经下采样32倍的目标框）分别计算iou，得到三个iou，凡是iou大于阈值0.3的，就记为正样本，就会将label[2]中这个iou大于0.3的anchor的相应位置 赋上真实框的值。
+
+如果目标所有的anchor，9个anchor，iou全部小于阈值0.3，那么选择9个anchor中和下采样后的目标框iou最大的，作为正样本，将目标真实值赋值给相应的anchor的位置。
+
+总的来说，就是将目标先进行3种下采样，分别和目标落在的网格产生的 9个anchor分别计算iou，大于阈值0.3的记为正样本。如果9个iou全部小于0.3，那么和目标iou最大的记为正样本。对于正样本，我们在label上 相对应的anchor位置上，赋上真实目标的值。       
+
+而yolov5采用了跨网格匹配规则，增加正样本Anchor数目的做法：
+
+对于任何一个输出层，yolov5抛弃了Max-IOU匹配规则而采用shape匹配规则，计算标签box和当前层的anchors的宽高比，即:wb/wa,hb/ha。如果宽高比大于设定的阈值说明该box没有合适的anchor，在该预测层之间将这些box当背景过滤掉。
+
+    # r为目标wh和锚框wh的比值，比值在0.25到4之间的则采用该种锚框预测目标
+    r = t[:, :, 4:6] / anchors[:, None]  # wh ratio：计算标签box和当前层的anchors的宽高比，即:wb/wa,hb/ha
+    # 将比值和预先设置的比例anchor_t对比，符合条件为True，反之False
+    j = torch.max(r, 1 / r).max(2)[0] < self.hyp['anchor_t']  # compare
+
+对于剩下的bbox，计算其落在哪个网格内，同时利用四舍五入规则，找出最近的2个网格，将这3个网格都认为是负责预测该bbox的，可以发现粗略估计正样本数相比前yolo系列，增加了3倍。code如下：
+
+    # Offsets
+    # 得到相对于以左上角为坐标原点的坐标
+    gxy = t[:, 2:4]  # grid xy
+    # 得到相对于右下角为坐标原点的坐标
+    gxi = gain[[2, 3]] - gxy  # inverse
+    # 这两个条件可以用来选择靠近的两个邻居网格
+    # jk和lm是判断gxy的中心点更偏向哪里
+    j, k = ((gxy % 1 < g) & (gxy > 1)).T
+    l, m = ((gxi % 1 < g) & (gxi > 1)).T
+    j = torch.stack((torch.ones_like(j), j, k, l, m))
+    # yolov5不仅用目标中心点所在的网格预测该目标，还采用了距目标中心点的最近两个网格
+    # 所以有五种情况，网格本身，上下左右，这就是repeat函数第一个参数为5的原因
+    t = t.repeat((5, 1, 1))[j]
+    # 这里将t复制5个，然后使用j来过滤
+    # 第一个t是保留所有的gtbox，因为上一步里面增加了一个全为true的维度，
+    # 第二个t保留了靠近方格左边的gtbox，
+    # 第三个t保留了靠近方格上方的gtbox，
+    # 第四个t保留了靠近方格右边的gtbox，
+    # 第五个t保留了靠近方格下边的gtbox，
+    offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
+
+对于YOLOv5，不同于yolov3,yolov4的是：其gt box可以跨层预测，即有些gt box在多个预测层都算正样本；同时其gt box可匹配的anchor数可为3~9个，显著增加了正样本的数量。不再是gt box落在那个网格就只由该网格内的anchor来预测，而是根据中心点的位置增加2个邻近的网格的anchor来共同预测。    
+
+    # 输入参数pred为网络的预测输出，它是一个list包含三个检测头的输出tensor。
+    def build_targets(self, p, targets):
+        '''
+        build_targets()函数的作用：找出与该gtbox最匹配的先验框（anchor）
+        '''
+      # 这里na为Anchor框种类数 nt为目标数 这里的na为3，nt为2
+        na, nt = self.na, targets.shape[0]  # number of anchors, targets
+      # 类别 边界框 索引 锚框
+        tcls, tbox, indices, anch = [], [], [], []
+        # 利用gain来计算目标在某一个特征图上的位置信息，初始化为1
+        gain = torch.ones(7, device=targets.device)  # normalized to gridspace gain
+        # 第2个维度复制nt遍
+        ai = torch.arange(na, device=targets.device).float().view(na, 1).repeat(1, nt)  # same as .repeat_interleave(nt)
+        # targets.shape = (na, nt, 7)（3，2，7）给每个目标加上Anchor框索引
+        targets = torch.cat((targets.repeat(na, 1, 1), ai[:, :, None]), 2)  # append anchor indices
+
+        g = 0.5  # bias
+        # 上下左右4个网格
+        off = torch.tensor([[0, 0],
+                            [1, 0], [0, 1], [-1, 0], [0, -1],  # j,k,l,m
+                          ], device=targets.device).float() * g  # offsets
+      # 处理每个检测层（3个）
+        for i in range(self.nl):
+        '''
+        tensor([[[ 1.25000,  1.62500],  #10,13, 16,30, 33,23 每一个数除以8
+                [ 2.00000,  3.75000],
+                [ 4.12500,  2.87500]],
+
+                [[ 1.87500,  3.81250], #30,61, 62,45, 59,119 每一个数除以16
+                [ 3.87500,  2.81250],
+                [ 3.68750,  7.43750]],
+
+                [[ 3.62500,  2.81250], #116,90, 156,198, 373,326 每一个数除以32
+                [ 4.87500,  6.18750],
+                [11.65625, 10.18750]]])
+        '''
+            # 3个anchors，已经除以当前特征图对应的stride
+            anchors = self.anchors[i]
+            # 将target中归一化后的xywh映射到3个尺度（80,80， 40,40， 20,20）的输出需要的放大系数
+            gain[2:6] = torch.tensor(p[i].shape)[[3, 2, 3, 2]]  # xyxy gain
+
+            # 将xywh映射到当前特征图，即乘以对应的特征图尺寸,targets*gain将归一化的box乘以特征图尺度，将box坐标分别投影到对应的特征图上
+            t = targets * gain
+            if nt:
+                # r为目标wh和锚框wh的比值，比值在0.25到4之间的则采用该种锚框预测目标
+                # 计算当前tartget的wh和anchor的wh比值
+                # 如果最大比值大于预设值model.hyp['anchor_t']=4，则当前target和anchor匹配度不高，不强制回归，而把target丢弃
+                r = t[:, :, 4:6] / anchors[:, None]  # wh ratio：计算标签box和当前层的anchors的宽高比，即:wb/wa,hb/ha
+                # 筛选满足条件1/hyp['anchor_t] < target_wh / anchor_wh < hyp['anchor_t]的框
+                #.max(2)对第3维度的值进行max，将比值和预先设置的比例anchor_t对比，符合条件为True，反之False
+                j = torch.max(r, 1 / r).max(2)[0] < self.hyp['anchor_t']  # compare
+                # 根据j筛选符合条件的坐标
+                t = t[j]  # filter
+                # Offsets
+                # 得到相对于以左上角为坐标原点的坐标
+                gxy = t[:, 2:4]  # grid xy
+                # 得到相对于右下角为坐标原点的坐标
+                gxi = gain[[2, 3]] - gxy  # inverse
+                # 这2个条件可以用来选择靠近的2个临近网格
+                # jk和lm是判断gxy的中心点更偏向哪里（如果中心点的相对左上角的距离大于1，小于1.5，则满足临近选择的条件）
+                j, k = ((gxy % 1 < g) & (gxy > 1)).T
+                # jk和lm是判断gxi的中心点更偏向哪里（如果中心点的相对右下角的距离大于1，小于1.5，则满足临近选择的条件）
+                l, m = ((gxi % 1 < g) & (gxi > 1)).T
+                j = torch.stack((torch.ones_like(j), j, k, l, m))
+                # yolov5不仅用目标中心点所在的网格预测该目标，还采用了距目标中心点的最近两个网格
+          # 所以有五种情况，网格本身，上下左右，这就是repeat函数第一个参数为5的原因
+                t = t.repeat((5, 1, 1))[j]
+                # 这里将t复制5个，然后使用j来过滤
+                # 第1个t是保留所有的gtbox，因为上一步里面增加了一个全为true的维度，
+                # 第2个t保留了靠近方格左边的gtbox，
+                # 第3个t保留了靠近方格上方的gtbox，
+                # 第4个t保留了靠近方格右边的gtbox，
+                # 第5个t保留了靠近方格下边的gtbox，
+                offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
+            else:
+                t = targets[0]
+                offsets = 0
+
+            """
+            对每个bbox找出对应的正样本anchor。
+            a 表示当前bbox和当前层的第几个anchor匹配
+            b 表示当前bbox属于batch内部的第几张图片，
+            c 是该bbox的类别
+            gi,gj 是对应的负责预测该bbox的网格坐标
+            gxy 负责预测网格中心点坐标xy
+            gwh 是对应的bbox的wh
+            """
+            b, c = t[:, :2].long().T  # image, class b表示当前bbox属于该batch内第几张图片
+            gxy = t[:, 2:4]  # grid xy真实目标框的xy坐标
+            gwh = t[:, 4:6]  # grid wh真实目标框的宽高
+            gij = (gxy - offsets).long()   #取整
+            gi, gj = gij.T  # grid xy indices (gi,gj)是计算出来的负责预测该gt box的网格的坐标
+
+            # Append
+            a = t[:, 6].long()  # anchor indices a表示当前gt box和当前层的第几个anchor匹配上了
+            indices.append((b, a, gj.clamp_(0, gain[3] - 1), gi.clamp_(0, gain[2] - 1)))  # image, anchor, grid indices
+            tbox.append(torch.cat((gxy - gij, gwh), 1))  # gtbox与3个负责预测的网格的坐标偏移量
+            anch.append(anchors[a])  # anchors
+            tcls.append(c)  # class
+
+        return tcls, tbox, indices, anch
+
+
+最后返回四个列表：
+
+class：类别       
+tbox：gtbox与3个负责预测的网格的xy坐标偏移量，gtbox的宽高         
+indices：b表示当前gtbox属于该batch内第几张图片，a表示gtbox与anchors的对应关系，负责预测的网格纵坐标，负责预测的网格横坐标       
+anch：最匹配的anchors       
+
+
+目标检测重中之重可以理解为Anchor的匹配策略，当下流行的Anchor-Free不过换了一种匹配策略罢了。当下真正可创新之处在于更优的匹配策略。        
+
+3、正样本个数的增加策略      
+yolov5共有3个预测分支（FPN、PAN结构），共有9种不同大小的anchor，每个预测分支上有3种不同大小的anchor。Yolov5算法通过以下3种方法大幅增加正样本个数：
+
+跨预测分支预测：假设一个ground truth框可以和2个甚至3个预测分支上的anchor匹配，则这2个或3个预测分支都可以预测该ground truth框，即一个ground truth框可以由多个预测分支来预测。    
+跨网格预测：假设一个ground truth框落在了某个预测分支的某个网格内，则该网格有左、上、右、下4个邻域网格，根据ground truth框的中心位置，将最近的2个邻域网格也作为预测网格，也即一个ground truth框可以由3个网格来预测；        
+跨anchor预测：假设一个ground truth框落在了某个预测分支的某个网格内，该网格具有3种不同大小anchor，若ground truth可以和这3种anchor中的多种anchor匹配，则这些匹配的anchor都可以来预测该ground truth框，即一个ground truth框可以使用多种anchor来预测。          
+
+    # r为目标wh和锚框wh的比值，比值在0.25到4之间的则采用该种锚框预测目标
+                # 计算当前tartget的wh和anchor的wh比值
+                # 如果最大比值大于预设值model.hyp['anchor_t']=4，则当前target和anchor匹配度不高，不强制回归，而把target丢弃
+                r = t[:, :, 4:6] / anchors[:, None]  # wh ratio：计算标签box和当前层的anchors的宽高比，即:wb/wa,hb/ha
+                # 筛选满足条件1/hyp['anchor_t] < target_wh / anchor_wh < hyp['anchor_t]的框
+
+4、坐标变换       
+对于之前的YOLOv3和YOLOv4，使用的是如下图所示的坐标表示形式：         
+![alt text](assets_picture/detect_track_keypoint/image-120.png)     
+分别是即边界框bbox相对于feature map的位置和宽高；     
+cx,cy分别代表feature map中grid cell的左上角坐标，在yolo中每个grid cell在feature map中的宽和高均为1；  
+pxpy分别代表Anchor映射到feature map中的的宽和高，anchor box原本设定是相对于320320
+坐标系下的坐标，需要除以stride如32映射到feature map坐标系中；      
+txtytwth这4个参数化坐标是网络学习的目标，其中
+,txty
+是预测的坐标偏移值，
+和twth
+是尺度缩放，sigma代表sigmoid函数。     
+
+与faster rcnn和ssd中的参数化坐标不同的是x和y的回归方式，YOLO v3&v4使用了sigmoid函数进行偏移量的规则化，而faster和ssd中对x，y除以anchor的宽和高进行规则化。
+
+YOLOv5参数化坐标的方式和yolo v3&v4是不一样的，如下：     
+![alt text](assets_picture/detect_track_keypoint/image-121.png)     
+![alt text](assets_picture/detect_track_keypoint/image-122.png)       
+
+    xy = (y[..., 0:2] * 2 - 0.5 + self.grid[i]) * self.stride[i]  # xy
+    wh = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
+这样，pxy的取值范围是[-0.5,1.5]，pwh的取值范围是(0,4×anchors[i])，这是因为采用了跨网格匹配规则，要跨网格预测了。
+
+
+
+
+
+
+
+
+
+
 ### 如何计算anchor的感受野？设置大小?    
 anchors是什么？     
 答：anchors其实就是在训练之前人为设定的先验框，网络输出结果的框就是在anchors的基础上进行调整的。所以说先验框设定的好坏对于模型的输出效果影响还是挺大的。在yolo中一般设定一个物体的先验框的个数一般是9个，例如：
@@ -133,8 +357,28 @@ Anchor大小<实际感受野<理论感受野
 分配给网格？分配给anchor?计算loss?       
 
 
+什么是正负样本?      
+正负样本是在训练过程中计算损失用的，而在预测过程和验证过程是没有这个概念的。      
+**正样本并不是手动标注的GT**。       
+正负样本都是**针对于算法经过处理生成的框**而言，而非原始的GT数据。         
+正例是用来使预测结果更靠近真实值的，负例是用来使预测结果更远离除了真实值之外的值的。       
 
-YOLOv1   
+训练的时候为什么需要进行正负样本筛选？    
+在目标检测中不能将所有的预测框都进入损失函数进行计算，主要原因是框太多，参数量太大，因此需要先将正负样本选择出来，再进行损失函数的计算。   
+对于正样本，是回归与分类都进行，而负样本由于没有回归的对象，不进行回归，只进行分类（分类为背景）。       
+
+为什么要训练负样本？     
+训练负样本的目的是为了降低误检测率、误识别率，提高网络模型的泛化能力。通俗地讲就是告诉检测器，这些“不是你要检测的目标”。     
+正负样本的比例最好为1：1到1：2左右，数量差距不能太悬殊，特别是正样本数量本来就不太多的情况下。      
+如果负样本远多于正样本，则负样本会淹没正样本的损失，从而降低网络收敛的效率与检测精度。这就是目标检测中常见的正负样本不均衡问题，解决方案之一是增加正样本数。     
+
+
+
+
+
+
+#### v1-v8标签匹配
+##### YOLOv1   
 标签分配：GT的中心落在哪个grid，那个grid对应的两个bbox中与GT的IOU最大的bbox为正样本，其余为负样本   
 即虽然一个grid分配两个bbox，但是只有一个bbox负责预测一个目标（边框和类别），这样导致YOLOv1最终只能预测7*7=49个目标。   
 
@@ -145,7 +389,7 @@ Each bounding box consists of 5 predictions:x,y,w,h,and confidence. The(x,y)coor
 （1）边框回归不准    
 （2）漏检很多   
 
-YOLOv2    
+##### YOLOv2    
 标签分配：（1）由YOLOv1的7*7个grid变为13*13个grid，划分的grid越多，多个目标中心落在一个grid的情况越少，越不容易漏检；（2）一个grid分配由训练集聚类得来的5个anchor（bbox）；（3）对于一个GT，首先确定其中心落在哪个grid，然后与该grid对应的5个bbox计算IOU，选择IOU最大的bbox负责该GT的预测，即该bbox为正样本；将每一个bbox与所有的GT计算IOU，若Max_IOU小于IOU阈值，则该bbox为负样本，其余的bbox忽略。    
 
 边框回归方式：预测基于grid的偏移量(tx, ty, tw, th)和基于anchor的偏移量(tx, ty, tw, th)，具体体现在loss函数中。   
@@ -177,7 +421,28 @@ v2与v1的相同点：
 同样都是一套回归算法的流程，全部采用回归loss；   
 同样都是“负责”的概念，找到负责GT的bbox；    
 
-YOLOv3    
+##### YOLOv3     
+yolov3是基于anchor和GT的IOU进行分配正负样本的。    
+GT又是什么？不是说正负样本不是原始GT。预测框和anchor又是什么？         
+到底谁是正负样本             
+
+步骤如下：
+
+步骤1：每一个目标都只有一个正样本，max-iou matching策略，匹配规则为IOU最大（没有阈值），选取出来的即为正样本；
+
+（每个目标只有一个正样本，就是这个目标先选择大中小三层中的一层，再在这层中选择一个网格，在网格上选择三个anchor中的一个）
+
+步骤2：IOU<0.2（人为设定阈值）的作为负样本；
+
+步骤3：除了正负样本，其余的全部为忽略样本
+
+比如drbox（drbox就是anchor调整后的预测框）与gtbox的IOU最大为0.9，设置IOU小于0.2的为负样本。？？？？？？？？？
+
+那么有一个IOU为0.8的box，那么这个box就是忽略样本，有一个box的IOU为0.1，那么就是负样本。
+
+步骤4：正anchor用于分类和回归的学习，正负anchor用于置信度confidence的学习，忽略样本不考虑。
+
+
 标签分配：三个特征图一共 8 × 8 × 3 + 16 × 16 × 3 + 32 × 32 × 3 = 4032 个anchor。   
 正例：任取一个ground truth，与4032个anchor全部计算IOU，IOU最大的anchor，即为正例。并且一个anchor，只能分配给一个ground truth。例如第一个ground truth已经匹配了一个正例anchor，那么下一个ground truth，就在余下的4031个anchor中，寻找IOU最大的anchor作为正例。ground truth的先后顺序可忽略。正例产生置信度loss、检测框loss、类别loss。标签为对应的ground truth标签（需要反向编码，使用真实的(x, y, w, h)计算出(tx, ty, tw, th) ）；类别标签对应类别为1，其余为0；置信度标签为1。     
 负例：正例除外（特殊情况：与ground truth计算后IOU最大的anchor，但是IOU小于阈值，仍为正例），与全部ground truth的IOU都小于阈值（0.5）的anchor，则为负例。负例只有置信度产生loss，置信度标签为0。    
@@ -202,7 +467,16 @@ YOLOv1和YOLOv2中的置信度标签，就是bbox与GT的IOU，YOLOv3为什么�
 （1）置信度意味着该预测框是或者不是一个真实物体，是一个二分类，所以标签是1、0更加合理。       
 （2）YOLO系列中出现了两种方式：第一种：置信度标签取预测框与真实框的IOU；第二种：置信度标签取1。    
 
-YOLOv4      
+##### YOLOv4  
+然而，在训练中，若只取一个IOU最大为正样本，则可能导致正样本太少，而负样本太多的正负样本不均衡问题，这样会大大降低模型的精确度。     
+因此，yolov4为了增加正样本，采用了multi anchor策略，即只要大于IoU阈值的anchor box，都统统视作正样本。        
+那些原本在YOLOv3中会被忽略掉的样本，在YOLOv4中则统统成为了正样本，这样YOLOv4的正样本会多于YOLOv3，对性能的提升也有一些帮助。    
+
+
+
+
+
+
 标签分配：YOLOv3是1个anchor负责一个GT，YOLO v4中用多个anchor去负责一个GT。   
 对于某个GT来说，计算其与所有anchor的IOU，IOU大于一定阈值（MAX_thresh=0.7）的anchor都设为正样本；    
 如果该GT与所有anchor的IOU都小于阈值（MAX_thresh=0.7），选择IOU最大的为正样本，保持每个GT至少有一个anchor负责预测；       
@@ -213,7 +487,227 @@ YOLOv4
 LOSS计算：边框回归loss变为CIOU loss，边框回归loss演进：MSE loss/Smooth L1 loss —— IOU loss —— GIOU loss —— DIOU loss —— CIOU loss     
 置信度loss采用MSE loss；分类loss采用BCE loss。    
 
-5、YOLOv5       
+##### YOLOv5        
+- build_targets
+
+![alt text](assets_picture/detect_track_keypoint/image-118.png)   
+输入分辨率(img-size)：608x608
+分类数(num_classes)：2
+batchsize：1           
+
+    def build_targets(pred, targets, model):
+      """
+      pred:
+      type(pred) : <class 'list'>
+      """
+      #p:predict,targets:gt
+      # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
+      det = model.module.model[-1] if is_parallel(model) else model.model[-1]  # Detect() module
+输入参数pred为网络的预测输出，它是一个list包含三个检测头的输出tensor。    
+
+    (Pdb) print(pred[0].shape)
+    torch.Size([1, 3, 76, 76, 7])  #1：batch-size,3:该层anchor的数量,7:位置(4),obj(1),分类(2)
+    (Pdb) print(pred[1].shape)
+    torch.Size([1, 3, 38, 38, 7])
+    (Pdb) print(pred[2].shape)
+    torch.Size([1, 3, 19, 19, 7])
+targets为标签信息(gt)，我这里只有一张图片,包含14个gt框,且类别id为0,在我自己的训练集里面类别0表示行人。其中第1列为图片在当前batch的id号，第2列为类别id，后面依次是归一化了的gt框的x,y,w,h坐标。     
+
+    (Pdb) print(targets)
+    tensor([[0.00000, 0.00000, 0.56899, 0.42326, 0.46638, 0.60944],
+            [0.00000, 0.00000, 0.27361, 0.59615, 0.02720, 0.02479],
+            [0.00000, 0.00000, 0.10139, 0.59295, 0.04401, 0.03425],
+            [0.00000, 0.00000, 0.03831, 0.59863, 0.06223, 0.02805],
+            [0.00000, 0.00000, 0.04395, 0.57031, 0.02176, 0.06153],
+            [0.00000, 0.00000, 0.13498, 0.57074, 0.01102, 0.03152],
+            [0.00000, 0.00000, 0.25948, 0.59213, 0.01772, 0.03131],
+            [0.00000, 0.00000, 0.29733, 0.63080, 0.07516, 0.02536],
+            [0.00000, 0.00000, 0.16594, 0.57749, 0.33188, 0.13282],
+            [0.00000, 0.00000, 0.79662, 0.89971, 0.40677, 0.20058],
+            [0.00000, 0.00000, 0.14473, 0.96773, 0.01969, 0.03341],
+            [0.00000, 0.00000, 0.10170, 0.96792, 0.01562, 0.03481],
+            [0.00000, 0.00000, 0.27727, 0.95932, 0.03071, 0.07851],
+            [0.00000, 0.00000, 0.18102, 0.98325, 0.00749, 0.01072]])
+
+off是偏置矩阵。       
+
+    (Pdb) print(off)
+    tensor([[ 0.00000,  0.00000],
+            [ 0.50000,  0.00000],
+            [ 0.00000,  0.50000],
+            [-0.50000,  0.00000],
+            [ 0.00000, -0.50000]])
+det.nl为预测层也就是检测头的数量，anchor匹配需要逐层进行。不同的预测层其特征图的尺寸不一样,而**targets是相对于输入分辨率的宽和高作了归一化**，targets*gain通过将归一化的box乘以特征图尺度从而将box坐标投影到特征图上。
+
+    for i in range(det.nl): #nl=>3
+            anchors = det.anchors[i] #shape=>[3,3,2]
+            gain[2:6] = torch.tensor(pred[i].shape)[[3, 2, 3, 2]]  
+            # Match targets to anchors
+            t = targets * gain
+运行
+
+    (Pdb) pred[0].shape
+    torch.Size([1, 3, 76, 76, 7])  #1,3,h,w,7
+    (Pdb) torch.tensor(pred[0].shape)[[3,2,3,2]]
+    tensor([76, 76, 76, 76])
+
+yolov5抛弃了MaxIOU匹配规则而采用shape匹配规则，计算标签box和当前层的anchors的宽高比，即:wb/wa,hb/ha。如果宽高比大于设定的阈值说明该box没有合适的anchor，在该预测层之间将这些box当背景过滤掉(是个狠人!)。    
+
+          if nt:
+                # Matches
+                r = t[:, :, 4:6] / anchors[:, None]  # wh ratio
+                j = torch.max(r, 1. / r).max(2)[0] < model.hyp['anchor_t']  # compare
+                # j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,n)=wh_iou(anchors(3,2), gwh(n,2))
+                t = t[j]  # filter
+按照该匹配策略,一个gt box可能同时匹配上多个anchor。       
+
+    (Pdb) torch.max(r,1./r).shape
+    torch.Size([3, 14, 2])
+    (Pdb) torch.max(r,1./r).max(2) #返回两组值,values和indices
+    torch.return_types.max(
+    values=tensor([[28.50301,  1.65375,  2.67556,  3.78370,  2.87777,  1.49309,  1.46451,  4.56943, 20.17829, 24.73137,  1.56263,  1.62791,  3.67186,  2.19651],
+            [17.72234,  1.99010,  1.67222,  2.36481,  1.24703,  2.38895,  1.57575,  2.85589, 12.61143, 15.45711,  1.47680,  1.68486,  1.59114,  4.60130],
+            [16.11040,  1.99547,  1.23339,  1.34871,  2.49381,  4.92720,  3.06377,  1.49178,  6.11463,  7.49436,  2.75656,  3.47502,  2.07540,  7.24849]]),
+    indices=tensor([[1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 1, 0],
+            [0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1],
+            [1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]]))
+    (Pdb) torch.max(r,1./r).max(2)[0] < model.hyp['anchor_t']
+    tensor([[False,  True,  True,  True,  True,  True,  True, False, False, False,  True,  True,  True,  True],
+            [False,  True,  True,  True,  True,  True,  True,  True, False, False,  True,  True,  True, False],
+            [False,  True,  True,  True,  True, False,  True,  True, False, False,  True,  True,  True, False]])
+    (Pdb) print(j.shape)
+    torch.Size([3, 14])
+    (Pdb) print(t.shape)
+    torch.Size([3, 14, 7])
+    (Pdb) t[j].shape
+    torch.Size([29, 7])
+    (Pdb) t[j]
+    tensor([[ 0.00000,  0.00000, 20.79421, 45.30740,  2.06718,  1.88433,  0.00000],
+            [ 0.00000,  0.00000,  7.70598, 45.06429,  3.34444,  2.60274,  0.00000],
+            [ 0.00000,  0.00000,  2.91188, 45.49583,  4.72962,  2.13167,  0.00000],
+            [ 0.00000,  0.00000,  3.34012, 43.34355,  1.65410,  4.67637,  0.00000],
+            [ 0.00000,  0.00000, 10.25882, 43.37595,  0.83719,  2.39581,  0.00000],
+            [ 0.00000,  0.00000, 19.72059, 45.00159,  1.34638,  2.37982,  0.00000],
+            [ 0.00000,  0.00000, 10.99985, 73.54744,  1.49643,  2.53927,  0.00000],
+            [ 0.00000,  0.00000,  7.72917, 73.56174,  1.18704,  2.64536,  0.00000],
+            [ 0.00000,  0.00000, 21.07247, 72.90799,  2.33363,  5.96677,  0.00000],
+            [ 0.00000,  0.00000, 13.75753, 74.72697,  0.56908,  0.81499,  0.00000],
+            [ 0.00000,  0.00000, 20.79421, 45.30740,  2.06718,  1.88433,  1.00000],
+            [ 0.00000,  0.00000,  7.70598, 45.06429,  3.34444,  2.60274,  1.00000],
+            [ 0.00000,  0.00000,  2.91188, 45.49583,  4.72962,  2.13167,  1.00000],
+            [ 0.00000,  0.00000,  3.34012, 43.34355,  1.65410,  4.67637,  1.00000],
+            [ 0.00000,  0.00000, 10.25882, 43.37595,  0.83719,  2.39581,  1.00000],
+            [ 0.00000,  0.00000, 19.72059, 45.00159,  1.34638,  2.37982,  1.00000],
+            [ 0.00000,  0.00000, 22.59712, 47.94083,  5.71178,  1.92723,  1.00000],
+            [ 0.00000,  0.00000, 10.99985, 73.54744,  1.49643,  2.53927,  1.00000],
+            [ 0.00000,  0.00000,  7.72917, 73.56174,  1.18704,  2.64536,  1.00000],
+            [ 0.00000,  0.00000, 21.07247, 72.90799,  2.33363,  5.96677,  1.00000],
+            [ 0.00000,  0.00000, 20.79421, 45.30740,  2.06718,  1.88433,  2.00000],
+            [ 0.00000,  0.00000,  7.70598, 45.06429,  3.34444,  2.60274,  2.00000],
+            [ 0.00000,  0.00000,  2.91188, 45.49583,  4.72962,  2.13167,  2.00000],
+            [ 0.00000,  0.00000,  3.34012, 43.34355,  1.65410,  4.67637,  2.00000],
+            [ 0.00000,  0.00000, 19.72059, 45.00159,  1.34638,  2.37982,  2.00000],
+            [ 0.00000,  0.00000, 22.59712, 47.94083,  5.71178,  1.92723,  2.00000],
+            [ 0.00000,  0.00000, 10.99985, 73.54744,  1.49643,  2.53927,  2.00000],
+            [ 0.00000,  0.00000,  7.72917, 73.56174,  1.18704,  2.64536,  2.00000],
+            [ 0.00000,  0.00000, 21.07247, 72.90799,  2.33363,  5.96677,  2.00000]])
+
+t已经是过滤后的gt box信息，gxy存储以特征图左上角为零点的gt box的(x,y)坐标。gxi这里通过gain[[2,3]]-gxy正好取了个反，表示的是以特征图右下角为零点的gt box的(x,y)坐标信息。yolov5在做计算正样本anchor时做了个大的调整：
+
+1). 不同于yolov3,yolov4，其gt box可以跨层预测，即有些gt box在多个预测层都算正样本；
+
+2).不同于yolov3,yolov4，其gt box可匹配的anchor数可为3~9个，显著增加了正样本的数量。不再是gt box落在那个网格就只由该网格内的anchor来预测，而是根据中心点的位置增加两个邻近的网格的anchor来共同预测。
+
+            gxy = t[:, 2:4]  # grid xy
+            gxi = gain[[2, 3]] - gxy  # inverse
+            #这两个条件可以用来选择靠近的两个邻居网格
+            j, k = ((gxy % 1. < g) & (gxy > 1.)).T
+            l, m = ((gxi % 1. < g) & (gxi > 1.)).T
+            j = torch.stack((torch.ones_like(j), j, k, l, m))
+            t = t.repeat((5, 1, 1))[j] #过滤box
+            offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j] #过滤偏置
+
+![alt text](assets_picture/detect_track_keypoint/image-119.png)     
+
+    (Pdb) torch.zeros_like(gxy).shape
+    torch.Size([29, 2])
+    (Pdb) torch.zeros_like(gxy)[None].shape
+    torch.Size([1, 29, 2])
+    (Pdb) off.shape
+    torch.Size([5, 2])
+    (Pdb) off[:,None].shape
+    torch.Size([5, 1, 2])
+    (Pdb) (torch.zeros_like(gxy)[None]+off[:,None]).shape
+    torch.Size([5, 29, 2])
+    (Pdb) (torch.zeros_like(gxy)[None]+off[:,None])[j].shape
+    torch.Size([87, 2])
+
+b表示当前bbox属于该batch内第几张图片,我这里当然全是0,因为batch等于1嘛。a表示当前gt box和当前层的第几个anchor匹配上了。
+
+(gi,gj)是我们计算出来的负责预测该gt box的网格的坐标。
+
+        b, c = t[:, :2].long().T  # image, class
+        gxy = t[:, 2:4]  # grid xy
+        gwh = t[:, 4:6]  # grid wh
+        gij = (gxy - offsets).long() #取整
+        gi, gj = gij.T  # grid xy indices
+        # Append
+        a = t[:, 6].long()  # anchor indices
+        indices.append((b, a, gj.clamp_(0, gain[3] - 1), gi.clamp_(0, gain[2] - 1)))  # image, anchor, grid indices
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+yolov3的做法是一个gt标签框只能匹配到大中小三层中的某一层（a），某一层中某一个网格（b），某个网格中三个anchor中的某一个（c）。这个anchor就是训练输出的，是先验框经过调整参数的anchor，这个框与标签gt匹配上为正样本，匹配不上为负样本。
+
+yolov4仅仅是这个框与标签gt匹配上的量变多了，从1个变成多个。
+
+yolov5觉得yolov4的做法正样本还是太少了，于是继续增加正样本的数量。
+
+如何增加？有三大方法，这三种方法分别对应yolov3的abc三个地方。
+
+(1) 跨分支预测（a）
+跨分支预测就是一个GT框可以由多个预测分支来预测，重复anchor匹配和grid匹配的步骤，可以得到某个GT 匹配到的所有正样本。      
+即这个gt可以由大中小中的几个分支负责与训练输出进行匹配。最多三个。       
+
+(2) 跨grid预测（b）
+假设一个GT框落在了某个预测分支的某个网格内，则该网格有左、上、右、下4个邻域网格，根据GT框的中心位置，将最近的2个邻域网格也作为预测网格，也即一个GT框可以由3个网格来预测。     
+例子：
+GT box中心点处于grid1中，grid1被选中，为了增加增样本，grid1的上下左右grid为候选网格，因为GT中心点更靠近grid2和grid3，grid2和grid3也作为匹配到的网格。        
+GT再与grid2和grid3上的三个anchor进行匹配。
+
+(3) 跨anchor预测（c）      
+每个层级每个格子有三个anchor，yolov3、yolov4只能匹配上三个中的一个，而yolov5可以多个匹配上。   
+具体方法：         
+不同于IOU匹配，yolov5采用基于宽高比例的匹配策略，GT的宽高与anchors的宽高对应相除得到ratio1，anchors的宽高与GT的宽高对应相除得到ratio2，取ratio1和ratio2的最大值作为最后的宽高比，该宽高比和设定阈值（默认为4）比较，小于设定阈值的anchor则为匹配到的anchor。        
+![alt text](assets_picture/detect_track_keypoint/image-117.png)     
+即一个gt可以由多个分支中的多个网格中的多个anchor同时负责。     
+总共有3*3*3=27个anchor负责一个gt，这样正样本的数量将大大提升。       
+yolov3是一个目标最多1个正样本，yolov4是一个目标最多3个正样本，yolov5一个目标最多可以有27个正样本。     
+
+yolov5正负样本分配步骤：
+
+步骤1：对每一个GT框，分别计算它与9种anchor的宽与宽的比值、高与高的比值；
+
+步骤2：在宽比值、高比值这2个比值中，取最极端的一个比值，作为GT框和anchor的比值；
+
+步骤3：得到GT框和anchor的比值后，若这个比值小于设定的比值阈值，那么这个anchor就负责预测GT框，这个anchor的预测框就被称为正样本，所有其它的预测框都是负样本。
+
+
+
+
+
 标签分配：考虑邻域的正样本anchor匹配策略，增加了正样本，参考https://zhuanlan.zhihu.com/p/183838757中loss计算部分。     
 边框回归方式：与之前一致，预测（tx, ty, tw, th）    
 LOSS计算：cls和conf分支都是BCE loss，回归分支采用CIOU loss。     
@@ -249,15 +743,6 @@ loss设计的思想在图中一目了然)：
 作者这种特别暴力增加正样本做法还是存在很大弊端，虽然可以加速收敛，但是由于引入了很多低质量anchor，对最终结果还是有影响的。我相信这个部分作者应该还会优化的。       
 
 遗传算法是最经典的智能优化算法，主要包括选择、交叉和变异三个步骤，先选择一些种子即初始值，然后经过适应度函数(评估函数)得到评估指标，对不错的解进行交叉和变异操作，进行下一次迭代。采用优胜劣汰准则不断进化，得到最优解。但是本文仅仅是模拟了遗传算法思想，因为其只有变异这一个步骤即对第一次运行得到的anchor进行随机变异操作，然后再次计算适应度函数值，选择最好的。        
-
-
-
-
-
-
-
-
-
 
 
 
@@ -971,6 +1456,43 @@ from意思是当前模块输入来自哪一层输出，和darknet里面一致，
 head部分配置如下所示        
 ![alt text](assets_picture/detect_track_keypoint/image-100.png)      
 作者没有分neck模块，所以head部分包含了PANet+head(Detect)部分。      
+
+
+![alt text](assets_picture/detect_track_keypoint/image-123.png)     
+box分支
+这里的box分支输出的便是物体的具体位置信息了，通过前面对于坐标参数化的分析可以知道，具体的输出4个值为tx
+、ty
+、tw
+以及th
+，然后通过前面的参数化反转方式与GT进行计算loss，对于回归损失，yolov3使用的loss是smooth l1损失。Yolov5的边框(Bounding box)回归的损失函数默认使用的是CIoU，不是GIoU，不是DIoU，是CIoU。       
+
+下面大概说一下每个IOU损失的局限性：
+
+IoU Loss 有2个缺点：        
+当预测框和目标框不相交时，IoU(A,B)=0时，不能反映A,B距离的远近，此时损失函数不可导，IoU Loss 无法优化两个框不相交的情况。     
+假设预测框和目标框的大小都确定，只要两个框的相交值是确定的，其IoU值是相同时，IoU值不能反映两个框是如何相交的。       
+GIoU Loss 有1个缺点：    
+当目标框完全包裹预测框的时候，IoU和GIoU的值都一样，此时GIoU退化为IoU, 无法区分其相对位置关系；
+DIoU Loss 有1个缺点：       
+当预测框的中心点的位置都一样时, DIoU无法区分候选框位置的质量；       
+综合IoU、GIoU、DIoU的种种局限性，总结一个好的bounding box regressor包含3个要素：        
+ 
+、Overlapping area
+、Central point distance
+、Aspect ratio
+
+后处理之DIoU NMS
+
+![alt text](assets_picture/detect_track_keypoint/image-124.png)      
+![alt text](assets_picture/detect_track_keypoint/image-125.png)   
+在上图重叠的摩托车检测中，中间的摩托车因为考虑边界框中心点的位置信息，也可以回归出来。因此在重叠目标的检测中，DIOU_nms的效果优于传统的nms。   
+
+为什么不用CIoU NMS呢？      
+因为前面讲到的CIOU loss，是在DIOU loss的基础上，添加的影响因子，包含ground truth标注框的信息，在训练时用于回归。但在测试过程中，并没有ground truth的信息，不用考虑影响因子，因此直接用DIOU NMS即可。       
+
+
+
+
 
 
 ### YOLOV6
