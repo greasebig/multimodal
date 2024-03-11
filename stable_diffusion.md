@@ -3250,6 +3250,108 @@ else:
 
 
 
+## 基于Stable Diffusion的AI扩图
+如何训练的？             
+训练数据长什么样？好像和传统训练一样           
+自己离优化改进模型，改进模块，评估有效因素，太远了，基本的运行，到训练数据，都能以搞懂           
+
+Diffusion models are capable of inpainting by default, but in general this type of inpainting will have the problem of exposure bias - sometimes the output will completely ignore the image context and purely use the text context.
+扩散模型默认能够进行修复，但通常这种类型的修复会存在曝光偏差的问题——有时输出会完全忽略图像上下文而纯粹使用文本上下文。      
+This custom-trained inpainting/outpainting model is based on SD 1.4, finetuned for an additional 100k steps at a batch size of 256.
+
+
+Train inpainting      
+
+    # example configs for 8x80GB A100
+
+    MODEL_FLAGS="--actual_image_size 512 --lr_warmup_steps 10000 --ema_rate 0.9999 --attention_resolutions 64,32,16 --class_cond False --diffusion_steps 1000 --image_size 64 --learn_sigma False --noise_schedule linear --num_channels 320 --num_heads 8 --num_res_blocks 2 --resblock_updown False --use_fp16 True --use_scale_shift_norm False "
+
+    TRAIN_FLAGS="--lr 5e-5 --batch_size 32 --log_interval 10 --save_interval 10000 --kl_model kl.pt --resume_checkpoint inpaint.pt"
+
+    export OPENAI_LOGDIR=./logs_inpaint/
+
+    mpiexec -n 8 python scripts/image_train_stable_inpaint.py --data_dir /path/to/text/and/images $MODEL_FLAGS $TRAIN_FLAGS
+
+
+训练inpaint，实现outpaint   
+
+    python sample.py --model_path inpaint.pt --edit your-image.png --text "your prompt here" --outpaint wider
+
+--edit 表示进行inpaint，outpaint    
+属于图像修复任务，low-level    
+包括超分等       
+
+代码地址：         
+https://github.com/Jack000/glid-3-xl-stable/wiki/Custom-inpainting-model         
+https://github.com/Jack000/glid-3-xl-stable        
+实现扩图的输入图像和mask操作：      
+
+    if args.outpaint == 'expand':
+                input_image = torch.zeros(1, 4, im.shape[2]+64, im.shape[3]+64, device=device)
+                input_image[:,:,32:32+im.shape[2],32:32+im.shape[3]] = im
+                input_image_mask = torch.zeros(1, 1, im.shape[2]+64, im.shape[3]+64, device=device, dtype=torch.bool)
+                input_image_mask[:,:,32:32+im.shape[2],32:32+im.shape[3]] = True
+            elif args.outpaint == 'wider':
+                input_image = torch.zeros(1, 4, im.shape[2], im.shape[3]+64, device=device)
+                input_image[:,:,:,32:32+im.shape[3]] = im
+                input_image_mask = torch.zeros(1, 1, im.shape[2], im.shape[3]+64, device=device, dtype=torch.bool)
+                input_image_mask[:,:,:,32:32+im.shape[3]] = True
+            elif args.outpaint == 'taller':
+                input_image = torch.zeros(1, 4, im.shape[2]+64, im.shape[3], device=device)
+                input_image[:,:,32:32+im.shape[2],:] = im
+                input_image_mask = torch.zeros(1, 1, im.shape[2]+64, im.shape[3], device=device, dtype=torch.bool)
+                input_image_mask[:,:,32:32+im.shape[2],:] = True
+            elif args.outpaint == 'left':
+                input_image = torch.zeros(1, 4, im.shape[2], im.shape[3]+32, device=device)
+                input_image[:,:,:,32:32+im.shape[3]] = im
+                input_image_mask = torch.zeros(1, 1, im.shape[2], im.shape[3]+32, device=device, dtype=torch.bool)
+                input_image_mask[:,:,:,32:32+im.shape[3]] = True
+            elif args.outpaint == 'right':
+                input_image = torch.zeros(1, 4, im.shape[2], im.shape[3]+32, device=device)
+                input_image[:,:,:,0:im.shape[3]] = im
+                input_image_mask = torch.zeros(1, 1, im.shape[2], im.shape[3]+32, device=device, dtype=torch.bool)
+                input_image_mask[:,:,:,0:im.shape[3]] = True
+            elif args.outpaint == 'top':
+                input_image = torch.zeros(1, 4, im.shape[2]+32, im.shape[3], device=device)
+                input_image[:,:,32:32+im.shape[2],:] = im  #############
+                input_image_mask = torch.zeros(1, 1, im.shape[2]+32, im.shape[3], device=device, dtype=torch.bool)
+                input_image_mask[:,:,32:32+im.shape[2],:] = True
+            elif args.outpaint == 'bottom':
+                input_image = torch.zeros(1, 4, im.shape[2]+32, im.shape[3], device=device)
+                input_image[:,:,0:im.shape[2],:] = im  ###############
+                input_image_mask = torch.zeros(1, 1, im.shape[2]+32, im.shape[3], device=device, dtype=torch.bool)
+                input_image_mask[:,:,0:im.shape[2],:] = True
+            else:
+                input_image = im
+                input_image_mask = torch.ones(1,1,im.shape[2], im.shape[3], device=device, dtype=torch.bool)   ##########直接将输入图像 im 赋值给 input_image，并生成全为 True 的掩码 input_image_mask。
+通道数是4   
+设置相应掩码       
+
+    kwargs = {
+            "context": torch.cat([text_emb, text_emb_blank], dim=0).float(),
+            "clip_embed": None,
+            "image_embed": image_embed
+        }
+
+
+
+## 基于SD的其他应用
+### classifier guided stable diffusion      
+为什么除了 CFG 之外，还要使用分类器？   
+分类器经过二元分类训练，风格化图像标记为 1，LAION 图像标记为 0。此技术不需要文本-图像对，而只需要两类图像。      
+ It works a bit better when the prompt is aligned with the classifier instead of against it.       
+减少对提示工程的依赖。您可以获得风格化的图像，而无需在提示中附加一堆艺术家标签   
+在没有文本标签的情况下策划自己的美学。您可以在自定义数据集上训练自己的分类器，以策划独特的美学。训练分类器比微调 SD 容易得多，并且可以在大多数消费类 GPU（6GB vram 或更高）上完成       
+![alt text](assets_picture/stable_diffusion/1710144616674.png)        
+改善构图。SD 在非正方形图像的中心裁剪上进行训练。这在大多数情况下是有效的，但在推理过程中可能会导致构图不佳（您有时会得到躯干和脚的图像） 我们可以使用分类器来引导 SD 远离这些世代，方法是将近方形的图像放在 1 类中，将高纵横比图像放在 0 类中（这应用于艺术和动漫预训练分类器， 但不是照片分类器）   
+putting near-square images in the 1 class and high-aspect-ratio images in the 0 class          
+非文本指导。CFG 是一种使用文本标签之间差异的向量算术。一些美学品质在文本数据集中表现不佳，可以从纯图像分类器中受益 - 除了构图问题之外，还有具有分割视图、大边距和压缩伪影的图像，这些图像在文本数据中没有被标记为这样。         
+分类器独立于 SD 模型，因此只要 VAE 相同，就可以在 SD 的未来版本中使用。           
+
+
+
+
+
 
 
 
