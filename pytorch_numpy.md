@@ -1,7 +1,5 @@
 ## torch常用操作，代码
-.squeeze(0) 是对图像进行操作的一部分。在这里，squeeze 函数用于删除数组的长度为1的维度。在这种情况下，squeeze(0) 的目的是从图像的第一个维度（通常是通道数）中删除大小为1的维度，以便获得一个更简化的表示。      
 
-.unsqueeze(0)在最前面加一个维度 
 
 
 如果-^tensor 的 reuires grad=True 的，我/不昨直接使用 numpy ,否会报: RunimeEror Can' cal numoyd on rable that reoures orad. Use varde
@@ -24,7 +22,7 @@ PyTorch 使用的是动态图 (Dynamic Computational Graphs) 的方式而 Tensor
 
 
 
-
+### 数据处理
 
 PIL Image的操作包括：     
 Scale:调整图片大小，长宽比保持不变    
@@ -45,9 +43,38 @@ ToPILImage: 将Tensor转为PIL Image对象
             T.Normalize(mean=[.5, .5, .5], std=[.5, .5, .5]) # 标准化至[-1, 1]，规定均值和标准差
         ])
 
+.squeeze(0) 是对图像进行操作的一部分。在这里，squeeze 函数用于删除数组的长度为1的维度。在这种情况下，squeeze(0) 的目的是从图像的第一个维度（通常是通道数）中删除大小为1的维度，以便获得一个更简化的表示。      
+
+.unsqueeze(0)在最前面加一个维度 
+
+transpose       
+维度交换，也就是转置      
+view      
+对张量重新进行维度定义  
+        import torch
+
+        a = torch.tensor([[[1, 2, 3],
+                        [4, 5, 6],
+                        [7, 8, 9],
+                        [10, 11, 12]]])
+        print(a.shape)
+
+        b = a.transpose(1, 2)
+        c = a.view((1, 3, -1))
+        print("Here is Tensor b:\n")
+        print(b)
+        print(b.shape)
+        print("Here is Tensor c:\n")
+        print(c)
+        print(c.shape)
+![alt text](assets_picture/pytorch_numpy/image.png)        
+很明显，transpose方法对a的后两维进行了转置交换，而view方法则是以行序对所有元素重新设定维度。       
 
 
-DataLoader函数定义如下：对batch的数据进行操作，同时还需要对数据进行shuffle和并行加速等。
+
+### DataLoader
+TensorDataset, Dataset单纯打包数据。     
+DataLoader函数定义如下：**对batch的数据进行操作**，同时还需要对数据进行**shuffle和并行加速**等。
 DataLoader(dataset, batch_size=1, shuffle=False, sampler=None, num_workers=0, collate_fn=default_collate, pin_memory=False, drop_last=False)   
 
         •dataset：加载的数据集(Dataset对象)
@@ -76,7 +103,7 @@ class torch.nn.DataParallel(module, device_ids=None, output_device=None, dim=0)
 model.gpu() 把模型放在gpu上   
 model = nn . DataParallel ( model ) 。DataParallel并行的方式，是将输入一个batch的数据均分成多份，分别送到对应的GPU进行计算，各个GPU得到的梯度累加。与Module相关的所有数据也都会以浅复制的方式复制多份，在此需要注意，在module中属性应该是只读的。    
 
-
+### nn
 torch.nn：核心数据结构是Module,抽象的概念，既可以表示神经网络某个层layer，也可以表示一个包含很多层的神经网络。常见做法是继承nn.Module,编写自己的层。     
 
 自定义层必须继承nn.Module，并且在其构造函数中需调用nn.Module的构造函数，super(xx,self).__init__()    
@@ -125,6 +152,8 @@ nn.Embedding(4,5)4个词，每个词使用5个向量表示
 
 
 损失函数也是nn.Module的子类。nn.CrossEntropLoss()     loss = criterion(score,label)     
+
+### optim
 torch.optim 将深度学习常用优化方法全部封装在torch.optim中，所有优化方法继承基类optim.Optimizer，并实现了自己的优化步骤    
 optimizer = optim.SGD(param=net.parameters(),lr=1)     
 optimizer.zero_grad() #梯度清零，等价于net.zero_grad()    
@@ -144,17 +173,262 @@ optimizer =optim.SGD([
 ```
 
 
+### loss
+#### BCEloss         
+![alt text](assets_picture/pytorch_numpy/1710232877574.png)        
+主要用于计算标签只有1或者0时的**二分类损失**，标签和预测值是一一对应的。需要注意的是，通过nn.BCEloss来计算损失前，需要对预测值进行一次sigmoid计算。      
+
+使用nn.BCEloss计算损失    
+
+        import torch
+        import torch.nn as nn
+        import torch.nn.functional as F
+
+        loss = nn.BCELoss(reduction="none")
+        target = torch.tensor([1,0,1], dtype=torch.float32)
+        predict = torch.tensor([0.8, 0.2, 0.3], dtype=torch.float32)
+        loss(F.sigmoid(predict), target)
+
+        #结果计算为：
+        tensor([0.3711, 0.7981, 0.5544])
+
+手动实现nn.BCEloss     
+
+        def myBceloss(predict, target, reduction="none"):
+
+                predict = F.sigmoid(predict)
+                if reduction == "none":
+                        return -(target*torch.log(predict) + (1-target)*torch.log(1-predict))
+                
+        myBceloss(predict, target)
+
+        #结果计算为：
+        tensor([0.3711, 0.7981, 0.5544])
+
+
+#### CrossEntropyLoss
+![alt text](assets_picture/pytorch_numpy/1710233045898.png)     
+用于计算多分类任务，一个标签可能对应了预测的多个概率，例如一个任务包含了C个类别，那么预测值就有C个。       
+使用nn.CrossEntropyLoss计算损失  
+
+        loss2 = nn.CrossEntropyLoss(reduction="none")
+        target2 = torch.tensor([0, 1, 2])
+        predict2 = torch.tensor([[0.9, 0.2, 0.8], [0.5, 0.2, 0.4], [0.4, 0.2, 0.9]])
+        loss2(predict2, target2)
+
+        #结果计算为：
+        tensor([0.8761, 1.2729, 0.7434])
+手动实现nn.CrossEntropyLoss(使用torch的其他函数)        
+
+        def myCrossEntropyloss(target, predict, reduction="none"):
+                if reduction == "none":
+                        predict = F.softmax(predict, dim=1)
+                        n = torch.arange(predict.shape[0])
+                        predict = predict[n, target] #花式索引, 首先是遍历每一行，然后是取出标签指定位置算出的softmax
+                        return -torch.log(predict)
+        myCrossEntropyloss(target2, predict2)
+        #结果计算为：
+        tensor([0.8761, 1.2729, 0.7434])
+手动实现nn.CrossEntropyLoss(使用numpy)   
+
+        import numpy as np
+
+        def myCrossEntropyLoss(target, predict, reduction="none"):
+        if reduction == "none":
+                # 对预测结果进行 softmax 操作
+                predict = np.exp(predict - np.max(predict, axis=1, keepdims=True))
+                predict /= np.sum(predict, axis=1, keepdims=True)
+
+                # 生成一个序列，范围是 [0, 1, 2, ..., predict.shape[0]-1]
+                n = np.arange(predict.shape[0])
+
+                # 选取每个样本中对应类别的预测概率，并计算负对数似然
+                predict = predict[n, target]
+                return -np.log(predict)
+
+        # 使用函数，并传入 target2 和 predict2 作为参数
+        loss = myCrossEntropyLoss(target2, predict2)
+![alt text](assets_picture/pytorch_numpy/1710246070398.png)      
+减去最大值的操作在计算softmax时是一种数值稳定性的技巧，通常被称为“max trick”或“max normalization”。这个技巧的目的是避免指数运算时出现数值上溢或下    
+当输入中存在较大的值时，其指数运算结果可能非常大，导致数值溢出，而较小的值可能导致数值下溢。
+
+通过减去最大值，可以确保指数运算的输入值都是负数或零，从而避免了数值上溢的问题。具体来说，减去最大值相当于在指数运算前对所有输入进行平移，这不会改变softmax的相对概率关系，但有助于数值计算的稳定性。
+
+
+
+### init, forward
+当你在PyTorch中创建一个包含forward方法的类的实例时，调用这个实例时会自动执行forward方法，触发模型的前向传播计算。这是因为在PyTorch中，模型的forward方法定义了模型在输入数据上的操作，而实例的调用会自动调用forward方法。      
+PyTorch利用这种机制来方便用户进行模型的使用和计算。       
+```
+import torch.nn as nn
+
+class MyModel(nn.Module):
+    def __init__(self):
+        super(MyModel, self).__init__()
+        # 定义模型的层和参数
+
+    def forward(self, x):
+        # 定义前向传播操作
+        # ...
+        return output
+
+
+model = MyModel() # 在这里修改init参数
+input_data = torch.randn(1, 3, 224, 224)  # 举例输入数据
+output = model(input_data)
+
+```
+
+### torch.linspace(1, 10, 10)
+start end step样本数    
+线性空间      
+tensor([ 1.,  2.,  3.,  4.,  5.,  6.,  7.,  8.,  9., 10.])           
+
 
 ## numpy
-np.arange(n)      
+### arange random
+for循环时range()    
+
+X = torch.randn(1000,input_size)      
+y = torch.randint(0, 3, (1000, output_size), dtype = torch.float32)     
+torch用randn, randint，对应到np.random底下，          
+
+        # 随机生成数据，大小为10 * 20列
+        source_data = np.random.rand(10, 20)
+        # 随机生成标签，大小为10 * 1列
+        source_label = np.random.randint(0,2,(10, 1))
+
+np.arange(n)对应torch.linspace      
 该函数用于创建一个等差数组，其中包含从0开始到n-1的整数。        
 [0 1 2 3 4]         
 
+### 花式索引（Fancy Indexing）
+花式索引（Fancy Indexing）是指使用整数数组或布尔数组来访问数组元素的一种索引方式。在Python中，主要用于NumPy和类似库(torch)中。这种索引方式允许你以一种灵活而强大的方式从数组中选择元素。       
+整数数组索引     
+import numpy as np
+
+        # 创建一个二维数组
+        arr = np.array([[1, 2, 3],
+                        [4, 5, 6],
+                        [7, 8, 9]])
+
+        # 使用整数数组索引选择元素
+        indices = np.array([0, 2])
+        result = arr[:, indices]
+
+        print(result)
+        [[1 3]
+        [4 6]
+        [7 9]]
+
+        indices1 = np.array([0, 1, 2])
+        indices2 = np.array([1, 2, 2])
+        result = arr[indices1, indices2]
+
+        print(result)
+        [2 6 9]
+
+在这个例子中，result 将是原数组的所有行，但仅包括第0列和第2列的元素。   
+布尔数组索引： 使用一个布尔数组来指定要选择的元素的位置，其中布尔数组的True表示选择对应位置的元素，False表示不选择。   
+
+        import numpy as np
+
+        # 创建一个二维数组
+        arr = np.array([[1, 2, 3],
+                        [4, 5, 6],
+                        [7, 8, 9]])
+
+        # 使用布尔数组索引选择元素
+        mask = (arr > 3)
+        result = arr[mask]
+
+        print(result)
+        [4 5 6 7 8 9]
+
+### np.sum axis
+总感觉反过来了    
+np.sum(arr, axis=0)沿着第一个维度（行）求和     
+在第一个维度上的元素间进行求和      
+![alt text](assets_picture/pytorch_numpy/1710246758642.png)      
+相当于for i += arr[i][:] 或者arr[i, :]
+
+还是有些绕              
+np.sum(arr, axis=1)    
+for i += arr[:, i]       
+即 = arr[:, 0] + arr[:, 1] + arr[:, 2]        
+在第二个维度上的元素间进行求和       
+        import numpy as np
+
+        arr = np.array([[1, 2, 3],
+                        [4, 5, 6]])
+
+        # 沿着第一个维度（行）求和，不保持维度
+        sum_without_keepdims = np.sum(arr, axis=0)
+
+        # 沿着第一个维度（行）求和，保持维度
+        sum_with_keepdims = np.sum(arr, axis=0, keepdims=True)
+
+        print("Sum without keepdims:")
+        print(sum_without_keepdims)
+        print("Shape without keepdims:", sum_without_keepdims.shape)
+
+        print("\nSum with keepdims:")
+        print(sum_with_keepdims)
+        print("Shape with keepdims:", sum_with_keepdims.shape)
+
+
+        arr = np.array([[1, 2, 3],
+                        [4, 5, 6]])
+        print(arr[:, 1])
+        # print的结果也不会保留维度，[2 5]
+        # 沿着第2个维度求和，不保持维度
+        sum_without_keepdims = np.sum(arr, axis=1)
+
+        # 沿着第2个维度求和，保持维度
+        sum_with_keepdims = np.sum(arr, axis=1, keepdims=True)
+
+        print("Sum without keepdims:")
+        print(sum_without_keepdims)
+        print("Shape without keepdims:", sum_without_keepdims.shape)
+
+        print("\nSum with keepdims:")
+        print(sum_with_keepdims)
+        print("Shape with keepdims:", sum_with_keepdims.shape)
+
+        Sum without keepdims:
+        [5 7 9]
+        Shape without keepdims: (3,)
+
+        Sum with keepdims:
+        [[5 7 9]]
+        Shape with keepdims: (1, 3)
+        Sum without keepdims:
+        [ 6 15]
+        Shape without keepdims: (2,)
+
+        Sum with keepdims:
+        [[ 6]
+        [15]]
+        Shape with keepdims: (2, 1)
 
 
 
-
-
-
+### np.max axis
+    >>> a = np.arange(4).reshape((2,2))
+    >>> a
+    array([[0, 1],
+           [2, 3]])
+    >>> np.amax(a)           # Maximum of the flattened array
+    3
+    >>> np.amax(a, axis=0)   # Maxima along the first axis
+    array([2, 3])
+    >>> np.amax(a, axis=1)   # Maxima along the second axis
+    array([1, 3])
+推测源码可能是            
+np.amax(a, axis=0)      
+for循环遍历i所在维度以外的元素，a[i, :]对于i所在维度以外的元素保持一致，此时i不断变换，寻找max      
+**for i : =max(max, cur_i)**        
+推测源码      
+绝对不是这个：max([i, :])      
 
 

@@ -120,6 +120,7 @@ When groups == in_channels and out_channels == K * in_channels, where K is a pos
 ## 池化
 nn.MaxPool2d——最大池化：选取池化核覆盖区域的最大值作为输出。   
 输出图像的尺寸计算公式：   
+和卷积公式一样        
 ![Alt text](assets_picture/conv_activate_token_loss/image.png)   
 
 

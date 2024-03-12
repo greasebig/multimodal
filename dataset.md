@@ -1,4 +1,8 @@
 # Pytorch加载数据集的方式总结
+Dataset放入数据和标签的路径       
+DataLoader做batch划分和shuffle，以及并行化程度          
+torch.utils.data.DataLoader(dataset,batch_size,shuffle,drop_last，num_workers)    
+
 
 ## 自己重写定义（Dataset、DataLoader）
 我们有自己制作的数据以及数据标签，但是有时候感觉不太适合直接用Pytorch自带加载数据集的方法。我们可以自己来重写定义一个类，这个类继承于 torch.utils.data.Dataset，同时我们需要重写这个类里面的两个方法 _ getitem__ () 和__ len()__函数。   
@@ -7,10 +11,11 @@
 import torch
 import numpy as np
 
-# 定义GetLoader类，继承Dataset方法，并重写__getitem__()和__len__()方法
-class GetLoader(torch.utils.data.Dataset):
+# 定义CustomDataset类，继承Dataset方法，并重写__getitem__()和__len__()方法
+class CustomDataset(torch.utils.data.Dataset):
 	# 初始化函数，得到数据
     def __init__(self, data_root, data_label):
+        super(CustomDataset, self).__init__()
         self.data = data_root
         self.label = data_label
     # index是根据batchsize划分数据后得到的索引，最后将data和对应的labels进行一起返回
@@ -26,8 +31,8 @@ class GetLoader(torch.utils.data.Dataset):
 source_data = np.random.rand(10, 20)
 # 随机生成标签，大小为10 * 1列
 source_label = np.random.randint(0,2,(10, 1))
-# 通过GetLoader将数据进行加载，返回Dataset对象，包含data和labels
-torch_data = GetLoader(source_data, source_label)
+# 通过CustomDataset将数据进行加载，返回Dataset对象，包含data和labels
+torch_data = CustomDataset(source_data, source_label)
 
 ```   
 构造了一个数据加载器torch_data，但是还是不能直接传入网络中。接下来需要构造数据装载器，产生可迭代的数据，再传入网络中   
@@ -39,10 +44,11 @@ torch.utils.data.DataLoader(dataset,batch_size,shuffle,drop_last，num_workers)
 3.shuffle     : 是否对数据进行打乱
 4.drop_last   : 是否对无法整除的最后一个datasize进行丢弃
 
-```  
+``` 
+
 ```python
-...
-torch_data = GetLoader(source_data, source_label)
+
+torch_data = CustomDataset(source_data, source_label)
 
 from torch.utils.data import DataLoader
 datas = DataLoader(torch_data, batch_size = 4, shuffle = True, drop_last = False, num_workers = 2)
@@ -53,7 +59,9 @@ for i, (data, label) in enumerate(datas):
 
 ```   
 
-## 用Pytorch自带的类（ImageFolder、datasets、DataLoader）
+## 用Pytorch自带的类（torchvision.datasets）
+from torchvision import datasets, transforms           
+datasets.ImageFolder      
 ### ImageFolder
 ```
 A generic data loader where the images are arranged in this way:
@@ -66,7 +74,7 @@ A generic data loader where the images are arranged in this way:
         root/cat/nsdf3.png
         root/cat/asd932_.png
 
-
+# 不用标签路径，只需要一个路径，已经在自己定义的Dataset的__getitem__能够处理好数据和标签
 dataset=torchvision.datasets.ImageFolder(
                        root, transform=None, 
                        target_transform=None, 
@@ -152,29 +160,27 @@ def dataloader(dataset, input_size, batch_size, split='train'):
 ```
 
 
-## transforms变换
+## transforms变换(torchvision.transforms)
 torchvision.transforms是Pytorch中的图像预处理包。一般定义在加载数据集之前，用transforms中的Compose类把多个步骤整合到一起，而这些步骤是transforms中的函数。   
 
-函数	含义   
-transforms.Resize	把给定的图片resize到given size
-transforms.Normalize	用均值和标准差归一化张量图像
-transforms.Totensor	可以将PIL和numpy格式的数据从[0,255]范围转换到[0,1] ; <br /另外原始数据的shape是（H x W x C），通过transforms.ToTensor()后shape会变为（C x H x W）
-transforms.RandomGrayscale	将图像以一定的概率转换为灰度图像
-transforms.ColorJitter	随机改变图像的亮度对比度和饱和度
-transforms.Centercrop	在图片的中间区域进行裁剪
-transforms.RandomCrop	在一个随机的位置进行裁剪
-transforms.FiceCrop	把图像裁剪为四个角和一个中心
-transforms.RandomResizedCrop	将PIL图像裁剪成任意大小和纵横比
-transforms.ToPILImage	convert a tensor to PIL image
-transforms.RandomHorizontalFlip	以0.5的概率水平翻转给定的PIL图像
-transforms.RandomVerticalFlip	以0.5的概率竖直翻转给定的PIL图像
-transforms.Grayscale	将图像转换为灰度图像
+    函数	            含义   
+    transforms.Resize	把给定的图片resize到given size
+    transforms.Normalize	用均值和标准差归一化张量图像
+    transforms.Totensor	可以将PIL和numpy格式的数据从[0,255]范围转换到[0,1] ; <br /另外原始数据的shape是（H x W x C），通过transforms.ToTensor()后shape会变为（C x H x W）
+    transforms.RandomGrayscale	将图像以一定的概率转换为灰度图像
+    transforms.ColorJitter	随机改变图像的亮度对比度和饱和度
+    transforms.Centercrop	在图片的中间区域进行裁剪
+    transforms.RandomCrop	在一个随机的位置进行裁剪
+    transforms.FiceCrop	把图像裁剪为四个角和一个中心
+    transforms.RandomResizedCrop	将PIL图像裁剪成任意大小和纵横比
+    transforms.ToPILImage	convert a tensor to PIL image
+    transforms.RandomHorizontalFlip	以0.5的概率水平翻转给定的PIL图像
+    transforms.RandomVerticalFlip	以0.5的概率竖直翻转给定的PIL图像
+    transforms.Grayscale	将图像转换为灰度图像
 
-### torch.linspace(1, 10, 10)
-start end step样本数  
-线性空间
 
-## 简单例子
+
+## 简单例子 直接使用TensorDataset，DataLoader 
 ```python
 import torch
 from torch.utils.data import random_split
@@ -182,13 +188,13 @@ import torch.utils.data as Data
 train_x = torch.randn(10,8)
 train_y = torch.randn(10,2)
 #正态分布取样，行列
-dataset = Data.TensorDataset(train_x,train_y)  #把训练集和标签继续封装
+dataset = Data.TensorDataset(train_x, train_y)  #把训练集和标签继续封装
 
-train_data,eval_data=random_split(dataset,[round(0.8*train_x.shape[0]),round(0.2*train_x.shape[0])],generator=torch.Generator().manual_seed(42))  #把数据机随机切分训练集和验证集
+train_data,eval_data=random_split(dataset, [round(0.8*train_x.shape[0]), round(0.2*train_x.shape[0])], generator=torch.Generator().manual_seed(42))  #把数据机随机切分训练集和验证集  round 是一个Python内置函数，用于将浮点数四舍五入为最接近的整数
 for i in train_data:
     print(i)
-loader = Data.DataLoader(dataset = train_data, batch_size = 2, shuffle = True, num_workers = 0 , drop_last=False)
-for step,(train_x,train_y) in enumerate(loader):
-    print(step,':',(train_x,train_y))
+loader = Data.DataLoader(dataset = train_data, batch_size = 2, shuffle = True, num_workers = 0, drop_last=False)
+for step, (train_x, train_y) in enumerate(loader):
+    print(step, ':', (train_x,train_y))
 
 ```
