@@ -1,5 +1,5 @@
 # transformer  
-怎么手写公式？？？？       
+怎么手写代码公式？？？？       
 
   2017  
   
@@ -80,7 +80,7 @@
 后将会得到很大的值，而这将导致在经过sofrmax操作后产生非常小的梯度，不利于网络的训练。  
 
   公式中计算矩阵Q和K每一行向量的内积  
-  Q乘以K的转置后，得到的矩阵行列数都为 n，n 为句子单词数，这个矩阵可以表示单词之间的 attention 强度。下图为Q乘以 
+  Q乘以K的转置后，得到的矩阵行列数都为 n，n 为句子单词数，这个矩阵可以表示单词之间的 attention 强度。下图为Q乘以 KT
  ，1234 表示的是句子中的单词。  
  ![Alt text](assets_picture/transformer/image-9.png)  
  得到之后，使用 Softmax 计算每一个单词对于其他单词的 attention 系数，公式中的 Softmax 是对矩阵的每一行进行 Softmax，即每一行的和都变为 1.   
@@ -213,7 +213,7 @@ Softmax：Softmax函数的公式是exp(xi) / Σ(exp(xj))，其中xi是输入向�
 ### 1.为什么要shifted right
 整体右移一位  
 Shifted Right 实质上是给输出添加起始符/结束符，方便预测第一个Token/结束预测过程。   
-### 2.多头注意力，本质就是拆开自注意力，然后算qk分数和qkv最后分数，有什么用？
+### 2.多头注意力，本质就是拆开自注意力要计算的张量去分开计算，然后算qk分数和qkv最后分数，有什么用？
 多头注意力例子  
 
 residual,残差2  
@@ -225,9 +225,9 @@ residual,残差2
                 reshaped to `[batch_size * heads, seq_len, dim // heads]`.  
   view(batch_size * num_heads, -1, dim_per_head)   
   torch.Size([4, 4096, 320])变torch.Size([32, 4096, 40])   
-  计算score:torch.Size([32, 4096, 4096])。`多个头确实score第一维度更多八倍`   
+  计算score : torch.Size([32, 4096, 4096])。`多个头确实score第一维度更多八倍`   
   计算qkv结果，即selfattn结果torch.Size([32, 4096, 40])`qkv结果数量一样`  
-  batch_to_head_dim：torch.Size([4, 4096, 320])  
+  batch_to_head_dim ：torch.Size([4, 4096, 320])  
   linear,drop(0)  
   加残差2    
 
@@ -236,5 +236,103 @@ residual,残差2
 
 论文作者提出用于克服「模型在对当前位置的信息进行编码时，会过度的将注意力集中于自身的位置」的问题。   
 原论文中说的是，将模型分为多个头，形成多个子空间，可以让模型去关注不同方面的信息   
+
+## 代码实现
+```python
+class MultiHeadAttention(nn.Module):
+
+    def __init__(self, d_model, n_head):
+        super(MultiHeadAttention, self).__init__()
+        self.n_head = n_head
+        self.attention = ScaleDotProductAttention()
+        self.w_q = nn.Linear(d_model, d_model)
+        self.w_k = nn.Linear(d_model, d_model)
+        self.w_v = nn.Linear(d_model, d_model)
+        self.w_concat = nn.Linear(d_model, d_model)
+
+    def forward(self, q, k, v, mask=None):
+        # 1. dot product with weight matrices
+        q, k, v = self.w_q(q), self.w_k(k), self.w_v(v)      # [N, seq_len, d_model]
+
+        # 2. split tensor by number of heads
+        q, k, v = self.split(q), self.split(k), self.split(v)   # [N, head, seq_len, d_model]
+
+        # 3. do scale dot product to compute similarity
+        out, attention = self.attention(q, k, v, mask=mask)     # out:[N, head, seq_len, d_model]
+
+        # 4. concat and pass to linear layer
+        out = self.concat(out)          # [N, seq_len, d_model]
+        out = self.w_concat(out)
+
+        # 5. visualize attention map
+        # TODO : we should implement visualization
+
+        return out
+
+    def split(self, tensor):
+        """
+        split tensor by number of head
+
+        :param tensor: [batch_size, length, d_model]
+        :return: [batch_size, head, length, d_tensor]
+        """
+        batch_size, length, d_model = tensor.size()
+
+        d_tensor = d_model // self.n_head
+        tensor = tensor.view(batch_size, length, self.n_head, d_tensor).transpose(1, 2)
+        # it is similar with group convolution (split by number of heads)
+
+        return tensor
+
+    def concat(self, tensor):
+        """
+        inverse function of self.split(tensor : torch.Tensor)
+
+        :param tensor: [batch_size, head, length, d_tensor]
+        :return: [batch_size, length, d_model]
+        """
+        batch_size, head, length, d_tensor = tensor.size()
+        d_model = head * d_tensor
+
+        tensor = tensor.transpose(1, 2).contiguous().view(batch_size, length, d_model)
+        return tensor
+
+
+class ScaleDotProductAttention(nn.Module):
+    """
+    compute scale dot product attention
+
+    Query : given sentence that we focused on (decoder)
+    Key : every sentence to check relationship with Qeury(encoder)
+    Value : every sentence same with Key (encoder)
+    """
+
+    def __init__(self):
+        super(ScaleDotProductAttention, self).__init__()
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, q, k, v, mask=None, e=1e-12):
+        # input is 4 dimension tensor
+        # [batch_size, head, length, d_tensor]
+        batch_size, head, length, d_tensor = k.size()
+
+        # 1. dot product Query with Key^T to compute similarity
+        k_t = k.transpose(2, 3)  # transpose
+        score = (q @ k_t) / math.sqrt(d_tensor)  # scaled dot product
+
+        # 2. apply masking (opt)
+        if mask is not None:
+            score = score.masked_fill(mask == 0, -10000)
+
+        # 3. pass them softmax to make [0, 1] range
+        score = self.softmax(score)
+
+        # 4. multiply with Value
+        v = score @ v
+
+        return v, score
+
+```
+
 
 

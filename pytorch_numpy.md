@@ -124,10 +124,6 @@ nn.LSTMCell(4,3) 对应层数只能是一层
 nn.Embedding(4,5)4个词，每个词使用5个向量表示   
 
 
-作者：神奇的大老虎在等offer
-链接：https://ac.nowcoder.com/discuss/1050933?type=2&page=0&channel=-1
-来源：牛客网
-
 损失函数也是nn.Module的子类。nn.CrossEntropLoss()     loss = criterion(score,label)     
 torch.optim 将深度学习常用优化方法全部封装在torch.optim中，所有优化方法继承基类optim.Optimizer，并实现了自己的优化步骤    
 optimizer = optim.SGD(param=net.parameters(),lr=1)     
@@ -146,4 +142,19 @@ optimizer =optim.SGD([
                 {'params': net.classifier.parameters(), 'lr': 1e-2}
             ], lr=1e-5)
 ```
+
+
+
+## numpy
+np.arange(n)      
+该函数用于创建一个等差数组，其中包含从0开始到n-1的整数。        
+[0 1 2 3 4]         
+
+
+
+
+
+
+
+
 

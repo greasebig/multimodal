@@ -1,8 +1,8 @@
-# CLIP 及其相关
+# CLIP
 2021
 - 论文中总结的不足
 ![image](https://github.com/greasebig/multimodal/assets/121388156/85fa96b0-b9c8-4e4c-87b2-fa774557f0a7)
-- CLIP是如何进行预训练的？
+- CLIP是如何进行预训练的？      
 对比学习
 - CLIP是如何做zero-shot的推理的？
 ```
@@ -18,10 +18,9 @@ prompt template。比如对于ImageNet的类别，首先把它变成"A photo of 
 400 million的图像文本对，这个数据集称作WIT（WebImage Text）
 ```
   
-首先使用在英文维基百科中出现了超过 100 次的单词构建了50万个  
-  queries
-每个样本的 text 要至少包含这 50 万个 queries 中的一个  
-每个 query 最多有 2 万个图像-文本对
+首先使用在英文维基百科中出现了超过 100 次的单词构建了50万个queries,            
+每个样本的 text 要至少包含这 50 万个 queries 中的一个,      
+每个 query 最多有 2 万个图像-文本对,     
 - Efficient Pre-Training Method
 ```
 试图预测每张图片所附文本的确切单词（给定一张图片，去预测对应文本，要逐字逐句去预测文本的），这是个困难的任务
@@ -35,7 +34,7 @@ prompt template。比如对于ImageNet的类别，首先把它变成"A photo of 
 - CLIP核心实现的伪代码
 ![image](https://github.com/greasebig/multimodal/assets/121388156/a1536d43-64c1-4c98-bb81-a974556105ca)
 ```得到对应的特征之后，再经过一个投射层（即W_i和W_t)，投射层的意义是学习如何从单模态变成多模态，
-投射完之后再做l2 norm，就得到了最终的用来对比的特征I_e和T_e，
+投射完之后再做L2 norm，就得到了最终的用来对比的特征I_e和T_e，
 
 现在有n个图像的特征，和n个文本的特征，接下来就是算consine similarity，
 算的相似度就是最后要分类的logits，最后logits和ground truth做交叉熵loss
@@ -80,7 +79,7 @@ image encoder选了ResNet和ViT两种结构，text encoder只用了transformer
   ![Alt text](assets_picture/clip/image.png)  
   
   列出了使用的这80个context prompts.在ImageNet上，共集成了80个不同的context prompts，这比单个的default prompt 提高了3.5%的性能。
-## 拓展应用：DALL-E 与 DALL-E2
+## CLIP拓展应用：DALL-E 与 DALL-E2
 ```
 基本原理为 VQGAN + CLIP。
 VQGAN（由VAE改进） 相当于生成器，CLIP相当于判别器，
@@ -111,13 +110,13 @@ DALL·E中的Transformer结构由64层attention层组成，每层的注意力头
 
 
 
-## DALL-E2
-- 分辨率达到1024，是4倍dalle
+### DALL-E2
+- 分辨率达到1024，是4倍dall-e
 - 基本原理是 CLIP + DDPM
 - DALL-E 2中的先验子模型和图像生成子模型都是基于扩散模型的
 - DALL-E 2使用了一种改进的GLIDE模型，以两种方式使用投影的CLIP文本嵌入(# 未读懂)
 
-## 拓展应用 三篇CVPR2022
+## CLIP拓展应用 三篇CVPR2022
 - ActionCLIP ：A new paradigm for Video Action Recognition
 ![image](https://github.com/greasebig/multimodal/assets/121388156/a6e1ed84-6217-4d2d-95c7-0121d7c23e92)
 

@@ -82,6 +82,7 @@ DALL·E是个多模态预训练大模型，“多模态”和“大”字都说�
 此外，GAN模型在训练过程中，除了需要“生成器”，将采样的高斯噪声映射到数据分布；还需要额外训练判别器，这就导致训练变得很麻烦了。    
 和GAN相比，Diffusion Model只需要训练“生成器”，训练目标函数简单，而且不需要训练别的网络（判别器、后验分布等），瞬间简化了一堆东西。     
 
+生成对抗网络（GANs），由于只需要进行单次前向传递生成，因此更为高效，但在大型和多样化数据集上图像质量往往会受到影响         
 
 
 
@@ -455,7 +456,9 @@ PNDMScheduler 使用伪数值方法来处理扩散模型，PNDMScheduler 是一�
 ![Alt text](assets_picture/stable_diffusion/image-56.png) 
 
 #### 采样器概述
-![Alt text](assets_picture/stable_diffusion/image-57.png)   
+![Alt text](assets_picture/stable_diffusion/image-57.png)    
+常微分方程（ODE）      
+随机微分方程（SDE）      
 ##### 老式 ODE 求解器（Old-School ODE solvers）
 经典的常微分方程（ODE）求解方法   
 ODE是微分方程的英文缩写。求解器是用来求解方程的算法或程序。老派ODE求解器指的是一些传统的、历史较久的用于求解常微分方程数值解的算法。  
@@ -2019,6 +2022,10 @@ IDEA-CCNL/Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese
  科大讯飞开源
 
 ### 4 unet_condition
+文生图，多模态信息交互方法：      
+- 文本信息。在crossAttnDownBlock中，（Transformer使用decoder部分）在第二个注意力模块中进行信息交互，q是前面的信息，kv是文本信息      
+- 时间步信息。在resnet中直接与hidden state +, 通过映射和变换维度，然后广播相加        
+
 target = noise   
 model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample   
 torch.Size([4, 4, 64, 64])  
@@ -2081,8 +2088,8 @@ hidden_states = torch.utils.checkpoint.checkpoint(
 
 ```
 - resnetblock  
-对sample:groupnorm,silu,conv,torch.Size([4, 320, 64, 64])   
-对temb:silu,linear*(1280,320),增加维度，torch.Size([4, 320, 1, 1])   
+对sample : groupnorm,silu,conv,torch.Size([4, 320, 64, 64])   
+对temb : silu,linear*(1280,320),增加维度，torch.Size([4, 320, 1, 1])   
 hidden_states = hidden_states + temb   
 将 b 的最后两个维度进行复制，使其形状变为 [4, 320, 64, 64]，然后再与 a 相加。这样，相加操作就能够逐元素地进行     
 ![Alt text](assets_picture/stable_diffusion/image-97.png)   
