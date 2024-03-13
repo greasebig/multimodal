@@ -1294,35 +1294,69 @@ COCO数据集有80个类别，所以类别数在85维输出中占了80维，每�
 筛选预测框    
 三个特征图一共可以解码出 19 × 19 × 3 + 38 × 38× 3 + 76 × 76 × 3 = 22743个box以及相应的类别、置信度。 首先，设置一个置信度阈值，筛选掉低于阈值的box，再经过DIOU_NMS（非极大值抑制）后，就可以输出整个网络的预测结果了   
 
-#### iou
-IOU 作为损失函数会出现的问题(缺点) 如果两个框没有相交，根据定义，loU=0，不能反映两者的距离大小(重合度)。同时因为 loss=0，没有梯度回传，无法进行学习训练。loU 无法精确的反映两者的重合度大小。   
-如下图所示，三种情况 loU 都相等，但看得出来他们的重合度是不一样的，左边的图回归的效果最好，右边的最差–水平线–旋转   
+#### 各种iou
+![alt text](assets_picture/detect_track_keypoint/image-134.png)     
+图片展示了3组矩形框重合的示例：绿色是真实目标存在的框GT box，黑色是预测的box位置。通过观察上图，发现第三个预测效果较好，因为预测目标的位置与真实目标最为接近。但是计算三组l2损失发现损失值都为8.41，然而IOU的值不同。因此说明l2损失不能准确反应两个目标边界框重合的程度，因此诞生了IOU损失函数。         
+- IOU    
+![alt text](assets_picture/detect_track_keypoint/image-133.png)     
+![alt text](assets_picture/detect_track_keypoint/image-135.png)      
+用两个方框相交的面积/两个方框合并的面积，将得到的值取以e为底对数，前面添上负号就得到了IOU损失函数。         
+作为损失函数会出现的问题(缺点)    
+如果两个框没有相交，根据定义，loU=0，不能反映两者的距离大小和重合度。同时因为 loss=0，没有梯度回传，无法进行学习训练。loU 无法精确的反映两者的重合度大小。   
+如下图所示，三种情况 loU 都相等，但看得出来他们的重合度是不一样的，左边的图回归的效果最好，右边的最差–水平线–旋转     
 ![alt text](assets_picture/detect_track_keypoint/image-52.png)   
-由于 loU 是比值的概念，对目标物体的 scale 是不敏感的。然而检测任务中的 BBox 的回归损失(MSE loss,11-smooth loss 等)优化和loU 优化不是完全等价的，而且 Ln 范数对物体的 scale 也比较敏感，loU 无法直接优化没有重叠的部分    
-GIoU：   
-![alt text](assets_picture/detect_track_keypoint/1709973322219.png)    
-上面公式的意思是:先计算两个框的最小闭包区域面积[公式1(通俗理解:同时包含预测框和真实框的最小框的面积)，再计算出 loU，再计算闭包区域中不属于两个框的区域占闭包区域的比重，最后用 loU 减去这个比重得到 GIOU。    
-特性 1.与loU 相似，GloU 也是一种距离度量，作为损失函数的话， [公式1,满足损失函数的基本要求 2.GloU 对 scale 不敏感 3.GloU 是 loU 的下界，在两个框无限重合的情况下，loU=GloU=1
-4 loU 取值[0,1]，但 GloU 有对称区间，取值范围[-1,1]。在两者重合的时候取最大值 1.4.在两者无交集且无限远的时候取最小值-1，因此 GloU 是一个非常好的距离度量指标5.与loU 只关注重叠区域不同，GloU 不仅关注重叠区域，还关注其他的非重合区域，能更好的反映两者的重合度。    
+由于 loU 是比值的概念，对目标物体的 scale 是不敏感的。然而检测任务中的 BBox 的回归损失(MSE loss,11-smooth loss 等)优化和loU 优化不是完全等价的，而且 Ln 范数对物体的 scale 也比较敏感，loU 无法直接优化没有重叠的部分？？？？？？？    
 
-DIoU:   
-![alt text](assets_picture/detect_track_keypoint/image-53.png)    
+- GIoU：    
+引入了一个最小包围框的概念       
+![alt text](assets_picture/detect_track_keypoint/1709973322219.png)    
+![alt text](assets_picture/detect_track_keypoint/image-136.png)       
+如图：绿色是真实目标边界框，红色是预测目标边界框，最外面的蓝色边框是将红绿矩形用最小矩形框起来的边界，Ac是蓝色矩形框的面积，u对应红绿矩形的并集面积。     
+如果当红绿矩形完美重合，那么IOU =1, Ac = u = 预测目标边界框面积，GIOU = 1 - 0 = 1。如果两个目标分开很远，Ac趋向于很大的数值，u趋于0，IOU也趋于0，GIOU = 0 - 1 = -1。因此GIOU取值的区间是[-1, 1]。     
+![alt text](assets_picture/detect_track_keypoint/image-137.png)     
+GIOU损失函数的最终表达形式是L(GIOU) = 1 - GIOU          
+特性        
+1.与loU 相似，GloU 也是一种距离度量，作为损失函数的话，满足损失函数的基本要求      
+2.GloU 对 scale 不敏感            
+3.GloU 是 loU 的下界，在两个框无限重合的情况下，loU=GloU=1       
+4 loU 取值[0,1]，但 GloU 有对称区间，取值范围[-1,1]。在两者重合的时候取最大值 1.   
+4.在两者无交集且无限远的时候取最小值-1，因此 GloU 是一个非常好的距离度量指标    
+5.与loU 只关注重叠区域不同，GloU 不仅关注重叠区域，还关注其他的非重合区域，能更好的反映两者的重合度。    
+但是GIoU也有一些问题：         
+1.当检测框和真实框出现包含现象（一个完全套住了另一个，没有并集了）的时候GIoU退化成IoU      
+2.两个框相交时，在水平和垂直方向上收敛慢         
+
+- DIoU:   
+考虑边框中心距离       
+将最小包围框面积蕴含在 c 中      
+![alt text](assets_picture/detect_track_keypoint/image-139.png)    
+根据公式计算：最右边DIoU大，LDIoU小        
+![alt text](assets_picture/detect_track_keypoint/image-140.png)     
+我们再看一组图，图中给出了3组目标边界框与目标边界框的重合关系，显然他们的重合位置不相同的，我们期望第三种重合（两个box中心位置尽可能重合。    
+IOU loss和GIoU loss是一模一样的，因此这两种损失不能很好表达边界框重合关系        
 DloU 要比 Glou 更加符合目标框回归的机制，将目标与 anchor 之间的距离，重叠率以及尺度都考虑进去，使得目标框回归变得更加稳定，不会像 U 和 GloU 一样出现训练过程中发散等问题。    
-![alt text](assets_picture/detect_track_keypoint/1709973597026.png)    
-其中，b，b“分别代表了预测框和真实框的中心点，且p代表的是计算两个中心点间的欧式距离。c代表的是能够同时包含预测框和真实框的最小闭包区域的对角线距离.    
+![alt text](assets_picture/detect_track_keypoint/image-138.png)     
 ![alt text](assets_picture/detect_track_keypoint/image-54.png)   
+将最小包围框面积蕴含在 c 中           
+ρ代表b和b(gt)之间的欧氏距离      
+其中，b，b“分别代表了预测框和真实框的中心点，且p代表的是计算两个中心点间的欧式距离。c代表的是能够同时包含预测框和真实框的最小闭包区域的对角线距离.    
+如果两个框完美重叠，d=0 ，IOU = 1，DIOU = 1 - 0 = 1 。如果两个框相距很远，d^2/c^2 趋近于1，IOU = 0, DIOU = 0 - 1 = -1 。因此，DIOU的取值范围也是[-1,1]。       
+![alt text](assets_picture/detect_track_keypoint/image-141.png)     
 优点 与 GloU loss 类似，DloU loss ( [公式] ) 在与目标框不重叠时，仍然可以为边界框提供移动方向。 DloU loss 可以直接最小化两个目标框的距离，因此比 GloU loss 收敛快得多    
 
-CIoU：   
+- CIoU：    
+CIoU就是在DIoU的基础长宽比的loss       
 论文考虑到 bbox 回归三要素中的长宽比还没被考虑到计算中，因此，进一步在 DIoU的基础上提出了 CloU。   
-论文中，作者表示一个优秀的回归定位损失应该考虑三种几何参数：重叠面积、中心点距离、长宽比。CIoU就是在DIoU的基础上增加了检测框尺度的loss，增加了长和宽的loss，这样预测框就会更加的符合真实框。    
+论文中，作者表示一个优秀的回归定位损失应该考虑三种几何参数：重叠面积、中心点距离、长宽比。  
 ![alt text](assets_picture/detect_track_keypoint/image-55.png)    
-a 是权重函数   
-v用来度量长宽比的相似性     
+a，v用来度量长宽比的相似性     
+w、h和w(gt)、h(gt)分别代表预测框的高宽和真实框的高宽。       
+CIOU的三项恰好对应IOU，中心点距离，长宽比的计算。CIOU loss = 1 - CIoU。α和v为长宽比         
 ![alt text](assets_picture/detect_track_keypoint/image-56.png)    
+准确框出轮廓，检测框的位置刚好合适             
 实际检测效果中，CIOU相比GIOU在框选目标时，能找到一个更合适的框选位置。如上图所示，第一行的两张图中，第一个猫猫使用GIOU损失函数，发现有一只猫耳朵在框外，第二只猫猫使用DIOU损失函数，将猫猫的位置准确标出。同样，第二行中，第一只狗狗虽然完整标出，但并不能准确框出狗狗的轮廓，而第二张图检测框的位置刚好合适。   
 
-SAM（空间注意力机制）   
+SAM（空间注意力机制）    
 YOLOv4 中的 SAM（Spatial Attention Module）是一个设计用来改进特征表达的组件。空间注意力机制的核心思想是在各个空间位置上动态地重新调整特征图（Feature Map），使模型能够更加关注那些对于目标任务更为重要的区域    
 具体来说，SAM 通过**学习一个空间注意力图**???????（Spatial Attention Map），该图与输入的特征图有相同的空间维度（宽度和高度），但每个位置的值范围在 0 到 1 之间。这个注意力图然后与原始的特征图进行逐元素的乘法运算（element-wise multiplication），以此来重新调整特征图的每个空间位置的重要性????      
 这种机制允许模型在不同的任务和数据集上有更好的泛化性能，尤其是在目标尺寸、形状或姿态变化很大的情况下。通过引入空间注意力机制，YOLOv4 能够更加准确地检测各种各样的对象，从而提高整体的目标检测性能????    
@@ -1383,7 +1417,7 @@ YOLO v5中的改进点：
 输入端： 数据增强(Mosaic Augmentation、MixUp、CutMix、Bluring、Label Smoothing等)、自适应锚框计算、自适应的图像缩放    
 BackBone骨干网络: Focus结构、CSP+DarkNet等   
 Neck：FPN+PAN、SPP等    
-Prediction：更换边框回归损失函数(GIoU_LOSS)    
+Prediction：更换边框回归损失函数(CIoU_LOSS)    
 
 ![alt text](assets_picture/detect_track_keypoint/image-61.png)   
 ![alt text](assets_picture/detect_track_keypoint/image-62.png)    
@@ -1459,7 +1493,12 @@ head部分配置如下所示
 
 
 ![alt text](assets_picture/detect_track_keypoint/image-123.png)     
-box分支
+#### loss
+类别预测（Class Prediction）      
+在传统的多分类任务中，一般使用的是softmax函数，将预测得分转换为综合为1的概率，就有点二极管那种感觉，不是动物，那就是人，再不行就是背景，就会导致有极强的排他性。    
+而在yolov3/v4/v5当中，在计算分类损失进行训练时，对每个标签使用二元交叉熵，去替换了softmax函数，降低了计算复杂度，以计算输入特定的标签的可能性，可以输出的标签是行人+儿童这种类型，输出的总分可以大于1。      
+
+box分支      
 这里的box分支输出的便是物体的具体位置信息了，通过前面对于坐标参数化的分析可以知道，具体的输出4个值为tx
 、ty
 、tw
@@ -1731,6 +1770,10 @@ PPYOLOE+表示在object365中进行了预训练（其模型结构配置文件与
 
 # 关键点算法
 ### HRNet
+损失：MSE损失          
+OKS（Object Keypoint Similarity）来表示预测keypoints与真实keypoints的相似程度，其值域在0到1之间，越靠近1表示相似度越高       
+涉及点的距离，分割区域面积，点可见性         
+
 对于Human Pose Estimation任务，现在基于深度学习的方法主要有两种：
 
 基于regressing的方式，即直接预测每个关键点的位置坐标。        

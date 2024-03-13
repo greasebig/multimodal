@@ -234,7 +234,8 @@ GAN由生成器g和判别器d组成。其中，生成器主要负责生成相应
 
 
 ### 生成模型VAE
-2013  
+ae,vae,vqvae的区别？                    
+2013   
 VAE的核心就是找到一个容易生成数据x 的z 的分布，即后验分布q ϕ ( z ∣ x ) ，VAE需要用神经网络拟合一个分布p θ ( z ∣ x ) 和q ϕ ( z ∣ x ) 接近。VAE假设每个x i 
 服从标准正态分布。
 
@@ -301,7 +302,7 @@ KL散度的作用：
 
 - KL散度测量两个概率分布之间的差异，它在VAE中被用来衡量学到的潜在表示分布与先验分布之间的差异。  
 通过最小化KL散度损失，我们迫使潜在表示分布接近于先验分布。这导致了在潜在表示空间中的一种结构，使得相似的输入在潜在空间中更加接近，有助于形成连续的潜在表示空间。
-连续性和结构的影响：
+连续性和结构的影响：      
 
 - 当KL散度损失最小化时，模型更倾向于学习到一个潜在表示空间，其中相邻的点在潜在空间中也是相邻的。  
 这种连续性和结构性的性质使得我们能够在潜在空间中进行插值，即通过在潜在空间中移动沿着连续路径的方式，生成具有平滑变化的新样本。这种插值对于生成新的样本和在潜在空间中进行探索非常有用。
@@ -352,8 +353,9 @@ f=H/h为下采样率（downsampling factor）
 这种有损压缩肯定是对SD的生成图像质量是有一定影响的，不过好在SD模型基本上是在512x512以上分辨率下使用的。为了改善这种畸变，stabilityai在发布SD 2.0时同时发布了两个在LAION子数据集上精调的autoencoder，注意这里只精调autoencoder的decoder部分，SD的UNet在训练过程只需要encoder部分，所以这样精调后的autoencoder可以直接用在先前训练好的UNet上（这种技巧还是比较通用的，比如谷歌的Parti也是在训练好后自回归生成模型后，扩大并精调ViT-VQGAN的decoder模块来提升生成质量） 
 
 #### loss
-`由一个通过感知损失[102]和基于补丁的[32]对抗目标[20,23,99]相结合训练的自动编码器组成。这确保了通过强制局部真实性将重建限制在图像流形内，并避免仅依赖像素空间损失（例如 L2 或 L1 目标）而引入的模糊。`
-
+`由一个通过感知损失[102]和基于补丁的[32]对抗目标[20,23,99]相结合训练的自动编码器组成。这确保了通过强制局部真实性将重建限制在图像流形内，并避免仅依赖像素空间损失（例如 L2 或 L1 目标）而引入的模糊。`       
+L1损失（最小绝对误差）：      
+L2损失（最小二乘误差）L2损失函数是误差平方的总和。        
 除了采用L1重建损失外，还增加了感知损失（perceptual loss，即LPIPS，具体见论文The Unreasonable Effectiveness of Deep Features as a Perceptual Metric）以及基于patch的对抗训练 ??  
 同时为了防止得到的latent的标准差过大，采用了两种正则化方法：第一种是KL-reg，类似VAE增加一个latent和标准正态分布的KL loss，不过这里为了保证重建效果，采用比较小的权重（～10e-6）`对学习得到的；latant的标准正态施加轻微的 KL 惩罚`；第二种是VQ-reg，引入一个VQ （vector quantization）layer，  不过VQ层是在decoder模块中，这里VQ的codebook采样较高的维度（8192）来降低正则化对重建效果的影响   
 `Because our subsequent DM is designed to work with the two-dimensional structure of our learned latent space z = E(x), we can use relatively mild compression rates and achieve very good reconstructions`   
@@ -1698,6 +1700,12 @@ refiner model和base model在结构上有一定的不同，其UNet的结构如�
 
 ## 动手QA
 ### 训练中文文生图
+数据清洗筛选过程       
+训练目的       
+训练过程，训练时长机器        
+评价指标数据        
+训练遇到的难题及解决         
+
 
 #### 评价指标
 具体数据没有  
@@ -2350,7 +2358,7 @@ parser.add_argument(
 ### 冻结权重
 accelerate无法同时加载多个模型的梯度进行更新回传，一次一个去训练   
 
-### 推理，具体是lora推理
+### sd推理，具体是lora推理
 pipe.unet.load_attn_procs(lora_path)   
 lora模型大小3Mb,训练显存6Gb      
 训练100轮五小时，loss震荡大，难以拟合数据集   
@@ -2850,7 +2858,7 @@ Stable Diffusion 2.1，以为其提供强大的视觉表示
 
 稳定视频扩散提供了一个强大的视频表示，我们可以通过微调视频模型来进行最先进的图像到视频合成以及其他高度相关的应用，如用于相机控制的LoRAs。最后，我们提供了有关视频扩散模型的多视角微调的先驱性研究，并展示了SVD构成了一个强大的3D先验，在多视角合成方面取得了最新的成果，同时仅使用了先前方法计算资源的一小部分。    
 
-### 动手推理
+### svd动手推理
 ```
 cond_aug=0.02小量变化
 value_dict["cond_frames"] = image + cond_aug * torch.randn_like(image)
