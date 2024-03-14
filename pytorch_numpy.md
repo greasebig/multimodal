@@ -432,3 +432,16 @@ for循环遍历i所在维度以外的元素，a[i, :]对于i所在维度以外�
 绝对不是这个：max([i, :])      
 
 
+
+
+
+
+
+
+
+## transforms
+transforms.Resize([h, w])
+将图片短边缩短至size (int)，长宽比保持不变        
+transforms.Resize(size)       
+一般输入深度网络的特征图长宽是相等的，需要同时制定长宽      
+transforms.Resize([h, w]        

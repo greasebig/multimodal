@@ -2,10 +2,30 @@
 # 检测
 
 ## 检测原理
-### 标签匹配策略
+### anchor   
+锚框，先验框      
+anchor gt pred grid 的关系是什么？         
+predict，也称为预测框，网络的 detect 层的输出信息。      
+Anchor（锚框）：在YOLO中，模型通过在图像中的不同位置和尺度上放置一组预定义的锚框来预测对象。这些锚框代表了不同尺度和纵横比的可能目标的大致位置和形状。       
+YOLO算法的目标是通过预测一组边界框（bounding boxes）来定位和分类图像中的目标。这些边界框是通过在图像中的每个位置和尺度上应用一组锚框来生成的。这些预测框被用来捕获可能包含目标的区域。       
+锚框是模型用来生成预测边界框的基础，它们定义了预测边界框的可能形状和尺寸范围。通过与锚框的比较，模型决定如何调整预测边界框以更好地与目标匹配。     
+
+最初的YOLOv1的初始训练过程很不稳定，在YOLOv2的设计过程中，作者观察了大量图片的ground truth，发现相同类别的目标实例具有相似的gt长宽比：比如车，gt都是矮胖的长方形；比如行人，gt都是瘦高的长方形。所以作者受此启发，从数据集中预先准备几个几率比较大的bounding box，再以它们为基准进行预测。       
+
+![alt text](assets_picture/detect_track_keypoint/image-143.png)    
+v5 v6.0的网络结构图。当我们的输入尺寸为640*640时，会得到3个不同尺度的输出：80x80（640/8）、40x40（640/16）、20x20（640/32），即上图中的CSP2_1模块的输出。  
+
+    anchors:
+      - [10,13, 16,30, 33,23]  # P3/8
+      - [30,61, 62,45, 59,119]  # P4/16
+      - [116,90, 156,198, 373,326]  # P5/32
+其中，80x80代表浅层的特征图（P3），包含较多的低层级信息，适合用于检测小目标，所以这一特征图所用的anchor尺度较小；同理，20x20代表深层的特征图（P5），包含更多高层级的信息，如轮廓、结构等信息，适合用于大目标的检测，所以这一特征图所用的anchor尺度较大。另外的40x40特征图（P4）上就用介于这两个尺度之间的anchor用来检测中等大小的目标。yolov5之所以能高效快速地检测跨尺度目标，这种对不同特征图使用不同尺度的anchor的思想功不可没。         
+
+
+### yolov3和yolov5 标签匹配策略
 CVPR2020中的文章ATSS揭露到anchor-based和anchor-free的目标检测算法之间的效果差异原因是由于正负样本的选择造成的。而在目标检测算法中正负样本的选择是由gt与anchor之间的匹配策略决定的。      
 
-1、Anchor机制
+1、Anchor机制       
 对于YOLOv5，Anchor对应与Yolov3则恰恰相反，对于所设置的Anchor：
 
 第一个Yolo层是最大的特征图40×40，对应最小的anchor box。
@@ -14,6 +34,7 @@ CVPR2020中的文章ATSS揭露到anchor-based和anchor-free的目标检测算法
 
     # anchors:
     #   - [10,13, 16,30, 33,23]  # P3/8
+    代表 w,h 预测框形状 
     #   - [30,61, 62,45, 59,119]  # P4/16
     #   - [116,90, 156,198, 373,326]  # P5/32
 
@@ -379,6 +400,7 @@ Anchor大小<实际感受野<理论感受野
 
 #### v1-v8标签匹配
 ##### YOLOv1   
+没有anchor        
 标签分配：GT的中心落在哪个grid，那个grid对应的两个bbox中与GT的IOU最大的bbox为正样本，其余为负样本   
 即虽然一个grid分配两个bbox，但是只有一个bbox负责预测一个目标（边框和类别），这样导致YOLOv1最终只能预测7*7=49个目标。   
 
@@ -390,20 +412,33 @@ Each bounding box consists of 5 predictions:x,y,w,h,and confidence. The(x,y)coor
 （2）漏检很多   
 
 ##### YOLOv2    
-标签分配：（1）由YOLOv1的7*7个grid变为13*13个grid，划分的grid越多，多个目标中心落在一个grid的情况越少，越不容易漏检；（2）一个grid分配由训练集聚类得来的5个anchor（bbox）；（3）对于一个GT，首先确定其中心落在哪个grid，然后与该grid对应的5个bbox计算IOU，选择IOU最大的bbox负责该GT的预测，即该bbox为正样本；将每一个bbox与所有的GT计算IOU，若Max_IOU小于IOU阈值，则该bbox为负样本，其余的bbox忽略。    
+引入anchor         
+标签分配：    
+（1）由YOLOv1的7/*7个grid变为13/*13个grid，划分的grid越多，多个目标中心落在一个grid的情况越少，越不容易漏检；（位置更精确）      
+（2）一个grid分配由训练集聚类得来的5个anchor（bbox）；（高宽更丰富）     
+（3）对于一个GT，   
+首先确定其中心落在哪个grid，（位置）    
+然后与该grid对应的5个bbox计算IOU，选择IOU最大的bbox负责该GT的预测，即该bbox为正样本；将每一个bbox与所有的GT计算IOU，若Max_IOU小于IOU阈值，则该bbox为负样本，其余的bbox忽略。（高宽）     
 
 边框回归方式：预测基于grid的偏移量(tx, ty, tw, th)和基于anchor的偏移量(tx, ty, tw, th)，具体体现在loss函数中。   
 基于anchor的偏移量的意思是，anchor的位置是固定的，偏移量=目标位置-anchor的位置。   
 基于grid的偏移量的意思是，grid的位置是固定的，偏移量=目标位置-grid的位置。    
+
+注：model预测出(tx, ty, tw, th)。     
+xy真实值结合grid计算，wh真实值结合anchor计算       
+即grid负责位置，anchor负责高宽       
 
 与YOLOv1的不同：
 
 网络输出：YOLOv1是（x, y, w, h），YOLOv2是（tx, ty, tw, th），这就决定了GT也是这种表示形式；    
 loss计算：YOLOv1是直接拿（x, y, w, h）来计算的，YOLOv2是拿（tx, ty, tw, th）来计算的，这就决定了YOLOv1是直接回归，YOLOv2是回归偏移量（offset）；   
 
-对于边界框的预测在沿袭YOLOv1的同时借鉴了Faster R-CNN的思想，其实，对于中心点（x，y）的预测跟YOLOv1原理相同，都是预测相对于grid的位置，只不过其经过了sigmoid函数公式变换，将中心点约束在一个grid内；对于宽高的预测，跟Faster R-CNN的思想一致，学习目标是anchor和GT之间的偏移量（而不直接是GT的宽和高，参考RCNN的计算过程）；    
+对于边界框的预测在沿袭YOLOv1的同时借鉴了Faster R-CNN的思想，     
+其实，对于中心点（x，y）的预测跟YOLOv1原理相同，都是预测相对于grid的位置，只不过其经过了sigmoid函数公式变换，将中心点约束在一个grid内；       
+对于宽高的预测，跟Faster R-CNN的思想一致，学习目标是anchor和GT之间的偏移量（而不直接是GT的宽和高，参考RCNN的计算过程）；    
 
-在YOLOv2中引入anchor思想，主要的贡献是优化了宽高尺度的学习，使宽高有一个更好的先验；而对于中心点的学习不是anchor的贡献，其跟YOLOv1思想一致，不过sigmoid变换的出现，使一开始的训练更稳定；对中心点的计算，没有用到anchor信息。     
+在YOLOv2中引入anchor思想，主要的贡献是优化了宽高尺度的学习，使宽高有一个更好的先验；     
+而对于中心点的学习不是anchor的贡献，其跟YOLOv1思想一致，不过`sigmoid`变换的出现，使一开始的训练更稳定；对中心点的计算，没有用到anchor信息。     
 ![alt text](assets_picture/detect_track_keypoint/image-94.png)    
 第1,4行是confidence_loss，注意这里的真值为0和IoU(GT, anchor)的值（与v1一致），在v2中confidence的预测值施加了sigmoid函数；    
 第2,3行：t是迭代次数，即前12800步我们计算这个损失，后面不计算了。这部分意义何在？意思是：前12800步我们会优化预测的(x,y,w,h)与anchor的(x,y,w,h)的距离+预测的(x,y,w,h)与GT的(x,y,w,h)的距离，12800步之后就只优化预测的(x,y,w,h)与GT的(x,y,w,h)的距离，也就是刚开始除了对GT的学习还会加一项对于anchor位置的学习，这么做的意义是在一开始预测不准的时候，用上anchor可以加速训练。      
@@ -422,6 +457,11 @@ v2与v1的相同点：
 同样都是“负责”的概念，找到负责GT的bbox；    
 
 ##### YOLOv3     
+max-iou matching策略         
+负样本/忽略样本         
+并且一个anchor，只能分配给一个ground truth:  每个目标只有一个正样本，就是这个目标先选择大中小三层中的一层，再在这层中选择一个网格，在网格上选择三个anchor中的一个        
+正样本太少        
+
 yolov3是基于anchor和GT的IOU进行分配正负样本的。    
 GT又是什么？不是说正负样本不是原始GT。预测框和anchor又是什么？         
 到底谁是正负样本             
@@ -443,14 +483,17 @@ GT又是什么？不是说正负样本不是原始GT。预测框和anchor又是�
 步骤4：正anchor用于分类和回归的学习，正负anchor用于置信度confidence的学习，忽略样本不考虑。
 
 
-标签分配：三个特征图一共 8 × 8 × 3 + 16 × 16 × 3 + 32 × 32 × 3 = 4032 个anchor。   
-正例：任取一个ground truth，与4032个anchor全部计算IOU，IOU最大的anchor，即为正例。并且一个anchor，只能分配给一个ground truth。例如第一个ground truth已经匹配了一个正例anchor，那么下一个ground truth，就在余下的4031个anchor中，寻找IOU最大的anchor作为正例。ground truth的先后顺序可忽略。正例产生置信度loss、检测框loss、类别loss。标签为对应的ground truth标签（需要反向编码，使用真实的(x, y, w, h)计算出(tx, ty, tw, th) ）；类别标签对应类别为1，其余为0；置信度标签为1。     
+标签分配：三个特征图一共 8 × 8 × 3 + 16 × 16 × 3 + 32 × 32 × 3 = 4032 个anchor。    
+
+正例：任取一个ground truth，与输出的特征层的4032个anchor全部计算IOU，IOU最大的anchor，即为正例。并且一个anchor，只能分配给一个ground truth。例如第一个ground truth已经匹配了一个正例anchor，那么下一个ground truth，就在余下的4031个anchor中，寻找IOU最大的anchor作为正例。ground truth的先后顺序可忽略。正例产生置信度loss、检测框loss、类别loss。标签为对应的ground truth标签（需要反向编码，使用真实的(x, y, w, h)计算出(tx, ty, tw, th) ）；类别标签对应类别为1，其余为0；置信度标签为1。     
+
 负例：正例除外（特殊情况：与ground truth计算后IOU最大的anchor，但是IOU小于阈值，仍为正例），与全部ground truth的IOU都小于阈值（0.5）的anchor，则为负例。负例只有置信度产生loss，置信度标签为0。    
 忽略样例：正例除外，与任意一个ground truth的IOU大于阈值（论文中使用0.5）的anchor，则为忽略样例。忽略样例不产生任何loss。    
 
 这样产生的问题是：一个GT只分配一个anchor来进行预测，存在正样本太少的问题，在后面的工作中例如FCOS已经证明了，增加高质量的正样本数量，有利于检测模型的学习。    
 
 边框回归方式：与YOLOv2一致    
+每个特征层都计算损失函数          
 特征图1的Yolov3的损失函数抽象表达式如下：    
 ![alt text](assets_picture/detect_track_keypoint/image-95.png)    
 Yolov3 Loss为三个特征图Loss之和：    
@@ -468,12 +511,14 @@ YOLOv1和YOLOv2中的置信度标签，就是bbox与GT的IOU，YOLOv3为什么�
 （2）YOLO系列中出现了两种方式：第一种：置信度标签取预测框与真实框的IOU；第二种：置信度标签取1。    
 
 ##### YOLOv4  
+增加正样本，采用了multi anchor策略，即只要大于IoU阈值的anchor box，都统统视作正样本    
+忽略样本变成正样本     
+LOSS计算：边框回归loss变为CIOU loss      
+
+
 然而，在训练中，若只取一个IOU最大为正样本，则可能导致正样本太少，而负样本太多的正负样本不均衡问题，这样会大大降低模型的精确度。     
 因此，yolov4为了增加正样本，采用了multi anchor策略，即只要大于IoU阈值的anchor box，都统统视作正样本。        
 那些原本在YOLOv3中会被忽略掉的样本，在YOLOv4中则统统成为了正样本，这样YOLOv4的正样本会多于YOLOv3，对性能的提升也有一些帮助。    
-
-
-
 
 
 
@@ -482,12 +527,24 @@ YOLOv1和YOLOv2中的置信度标签，就是bbox与GT的IOU，YOLOv3为什么�
 如果该GT与所有anchor的IOU都小于阈值（MAX_thresh=0.7），选择IOU最大的为正样本，保持每个GT至少有一个anchor负责预测；       
 如果一个anchor与所有的GT的IOU都小于（MIN_thresh=0.3），则该anchor为负样本；其余的anchor都忽略。    
 
-边框回归方式：与YOLOv2、YOLOv3一致，都是预测（tx, ty, tw, th）
+
 
 LOSS计算：边框回归loss变为CIOU loss，边框回归loss演进：MSE loss/Smooth L1 loss —— IOU loss —— GIOU loss —— DIOU loss —— CIOU loss     
 置信度loss采用MSE loss；分类loss采用BCE loss。    
 
-##### YOLOv5        
+
+
+##### YOLOv5     
+yolov5抛弃了MaxIOU匹配规则而采用shape匹配规则，计算标签box和当前层的anchors的宽高比，即:wb/wa,hb/ha。如果宽高比大于设定的阈值说明该box没有合适的anchor，在该预测层之间将这些box当背景过滤掉     
+0.5-4         
+1). 不同于yolov3,yolov4，其gt box可以跨层预测，即有些gt box在多个预测层都算正样本；      
+2).不同于yolov3,yolov4，其gt box可匹配的anchor数可为3~9个，显著增加了正样本的数量。不再是gt box落在那个网格就只由该网格内的anchor来预测，而是根据中心点的位置增加两个邻近的网格的anchor来共同预测。     
+(3) 跨anchor预测（c）      
+每个层级每个格子有三个anchor，yolov3、yolov4只能匹配上三个中的一个，而yolov5可以多个匹配上。   
+具体方法：         
+不同于IOU匹配，yolov5采用基于宽高比例的匹配策略，GT的宽高与anchors的宽高对应相除得到ratio1，anchors的宽高与GT的宽高对应相除得到ratio2，取ratio1和ratio2的最大值作为最后的宽高比，该宽高比和设定阈值（默认为4）比较，小于设定阈值的anchor则为匹配到的anchor。        
+
+
 - build_targets
 
 ![alt text](assets_picture/detect_track_keypoint/image-118.png)   
@@ -1410,7 +1467,7 @@ bag-of-freebies的高级训练方法。除了常规的增强，如随机亮度�
 
 ### YOLO V5
 YOLOv5[72]是在YOLOv4之后几个月于2020年由Glenn Jocher发布。在写这篇文章时，还没有关于YOLOv5的科学论文，但从代码中，我们知道它使用了YOLOv4部分描述的许多改进，主要区别是它是用Pytorch而不是Darknet开发的。     
-
+![alt text](assets_picture/detect_track_keypoint/image-142.png)      
 ![alt text](assets_picture/detect_track_keypoint/image-59.png)    
 ![alt text](assets_picture/detect_track_keypoint/image-60.png)    
 YOLO v5中的改进点：   
@@ -1520,14 +1577,13 @@ DIoU Loss 有1个缺点：
 、Central point distance
 、Aspect ratio
 
-后处理之DIoU NMS
-
-![alt text](assets_picture/detect_track_keypoint/image-124.png)      
+后处理之DIoU NMS        
+？？？？？？？？    
+具体怎么做？？？         
 ![alt text](assets_picture/detect_track_keypoint/image-125.png)   
 在上图重叠的摩托车检测中，中间的摩托车因为考虑边界框中心点的位置信息，也可以回归出来。因此在重叠目标的检测中，DIOU_nms的效果优于传统的nms。   
 
-为什么不用CIoU NMS呢？      
-因为前面讲到的CIOU loss，是在DIOU loss的基础上，添加的影响因子，包含ground truth标注框的信息，在训练时用于回归。但在测试过程中，并没有ground truth的信息，不用考虑影响因子，因此直接用DIOU NMS即可。       
+
 
 
 

@@ -3,7 +3,7 @@ ae,vae,vqvae的区别？
 clip训练过程         
 图图相似度度量方法        
 相同衣服识别         
-tokenizer-bpe,embedding           
+tokenizer-bpe, embedding           
 ! lora具体怎么加         
 lora训练不稳定是因为什么，怎么解决       
 yolov5正负样本匹配详细规则（进而自己可以考虑为什么yolov8无锚框）        

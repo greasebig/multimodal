@@ -1127,31 +1127,298 @@ prompthero/openjourney：mdjrny-v4风格图像
 
 
 #### LoRA
-采用的方式是向原有的模型中插入新的数据处理层，这样就避免了去修改原有的模型参数，从而避免将整个模型进行拷贝的情况，同时其也优化了插入层的参数量，最终实现了一种很轻量化的模型调校方法。  
-和上文提到的Hypernetwork相同，LoRA在稳定扩散模型里也将注意打在了crossattention（注意力交叉）所在模块，LoRA将会将自己的权重添加到注意力交叉层的权重中，以此来实现微调。   
+秩分解矩阵     
+![alt text](assets_picture/stable_diffusion/image-160.png)       
+r即rank,秩        
+在这里r是一个超参数：在模型复杂性、适应能力和欠拟合或过拟合风险之间进行权衡
+
+    r越小，低秩矩阵越简单，适应过程中需要学习的参数越少。这可以加快训练速度，并可能减少计算需求。
+
+    然而，r越小，低秩矩阵捕捉特定任务信息的能力就越低。
+
+    这可能会导致较低的适应质量，并且与较高的r相比，模型在新任务上的表现可能不那么好
+论文测试了在多数场景下适当的LORA微调和全量微调的效果不相上下。一个可能原因是INTRINSIC DIMENSIONALITY论文中提出，虽然语言模型整体参数空间很大，但具体到每个任务其实有各自的隐表征空间(intrisic dimension)，这个隐表征空间的维度并不高, 因此在微调过程中加入低秩分解并不一定会影响微调效果。     
+![alt text](assets_picture/stable_diffusion/image-159.png)         
+实际上就是用BA的矩阵逼近变化△w      
+![alt text](assets_picture/stable_diffusion/image-161.png)    
+![alt text](assets_picture/stable_diffusion/image-162.png)       
+
+具体怎么加：     
+使用 + 直接广播相加       
+![alt text](assets_picture/stable_diffusion/image-164.png)         
+![alt text](assets_picture/stable_diffusion/image-163.png)     
+经过lora可以看出在Q中的4096*12288变成 4096*16 和16*12288       
+
+
+ Low-Rank Adaptation (低秩适配)，它是一种 Parameter-Efficient Fine-Tuning (参数高效微调，PEFT) 方法，即在微调时只训练原模型中的部分参数，以加速微调的过程    
+采用的方式是向原有的模型中**插入新的数据处理层**，这样就避免了去修改原有的模型参数，从而避免将整个模型进行拷贝的情况，同时其也优化了插入层的参数量，最终实现了一种很轻量化的模型调校方法。  
+所谓 Adaptation 是一种优化方法，用于在预训练模型的基础上适应新任务。     
+
+
+
+
+和上文提到的Hypernetwork相同，LoRA在稳定扩散模型里也将注意打在了**crossattention（注意力交叉）**所在模块，LoRA将会将自己的权重添加到注意力交叉层的权重中，以此来实现微调。   
 添加权重是以矩阵的形式，如果这样做，LoRA势必需要存储同样大小的参数，那么LoRA又有了个好点子，直接以矩阵相乘的形式存储，最终文件大小就会小很多了，训练时需要的显存也少了。  
 ![Alt text](assets_picture/stable_diffusion/image-44.png)   
-也就是说，对于SD模型权重w0 ，我们不再对其进行全参微调训练，我们对权重加入残差diff_W的形式，通过训练 来完成优化过程：     
+也就是说，对于SD模型权重 w ，我们不再对其进行全参微调训练，我们对权重加入残差 ΔW 的形式，通过训练 来完成优化过程：     
+假设我们正在修改模型中的一个参数 w (全模型参数)
+，我们就应该维护它的变化量 ΔW
+，训练时的参数用 w + ΔW 
+ 表示。这样，想要在推理时控制模型的修改程度，只要添加一个 a
+，令使用的参数为 w + aΔW 
+即可。      
 ![Alt text](assets_picture/stable_diffusion/image-82.png)  
 其中![Alt text](assets_picture/stable_diffusion/image-81.png) ，其是由两个低秩矩阵的乘积组成。由于下游细分任务的域非常小，所以 可以取得很小，很多时候我们可以取 。    
+LoRA 的作者提出假设：模型参数在微调时的变化量中蕴含的信息没有那么多。为了用更少的信息来表示参数的变化量 ΔW 
+，我们可以把 ΔW 
+拆解成两个低秩矩阵的乘积：      
+由于  ΔW 
+ 维护的其实是参数的变化量，我们既可以把它与预训练模型的参数加起来得到一个新模型以提高推理速度，也可以在线地用一个混合比例来灵活地组合新旧模型。     
 不过除了主模型+LoRA的形式，我们还可以调整LoRA的权重：  
 ![Alt text](assets_picture/stable_diffusion/image-85.png)  
 除了调整单个LoRA的权重，我们还可以使用多个LoRA同时作用于一个主模型，并配置他们的权重，我们拿两个LoRA举例：  
-![Alt text](assets_picture/stable_diffusion/image-86.png)  
+![Alt text](assets_picture/stable_diffusion/image-86.png)    
+可以用一个 0~1 之间的比例来控制 SD LoRA 新画风的程度。        
+可以把不同画风的 SD LoRA 模型以不同比例混合。       
+LoRA 甚至可以作用于被其他方式修改过的原模型，比如 SD LoRA 支持带 ControlNet 的 SD   
+LoRA 的作者在实现 LoRA 模块时，给修改量乘了一个 a/r 
+ 的系数，即对于输入 x
+，带了 LoRA 模块后的输出为 wx + a/r * BAx
+。作者解释说，调这个参数几乎等于调学习率，一开始令 a = r 
+即可。在我们要反复调超参数 r
+时，只要保持 a
+不变，就不用改其他超参数了（因为不加 a
+的话，改了 r
+后，学习率等参数也得做相应调整以维持同样的训练条件）    
+当然，实际运用中，LoRA 的超参数很好调。一般令 r = 4, 8, 16   
+即可。由于我们不怎么会变 r
+，总是令 a = r  
+就够了。    
 
+LORA：LORA: LOW-RANK ADAPTATION OF LARGE LANGUAGE MODELS      
+冻结LM微调Prompt介绍过一些soft-prompt，包括P-Tunning和Prompt-Tunning也属于低参数微调。这些方案是通过参数`拼接`的方案引入额外参数。这里介绍另一类方案，同样是冻结LLM的参数，通过参数`相加`的方案引入额外参数, 相较soft-prompt最明显的优势，就是不会占用输入token的长度。        
+论文测试了在多数场景下适当的LORA微调和全量微调的效果不相上下。一个可能原因是INTRINSIC DIMENSIONALITY论文中提出，虽然语言模型整体参数空间很大，但具体到每个任务其实有各自的隐表征空间(intrisic dimension)，这个隐表征空间的维度并不高, 因此在微调过程中加入低秩分解并不一定会影响微调效果。?????        
+Rank的选取：Rank的取值作者对比了1-64，效果上Rank在4-8之间最好，再高并没有效果提升。不过论文的实验是面向下游单一监督任务的，因此在指令微调上根据指令分布的广度，Rank选择还是需要在8以上的取值进行测试。     
+alpha参数：alpha其实是个缩放参数，本质和learning rate相同，所以为了简化我默认让alpha=rank，只调整lr，这样可以简化超参      
 
+初始化：A和Linear层的权重相同Uniform初始化，B是zero初始化，这样最初的Lora权重为0。所以Lora参数是从头学起，并没有那么容易收敛。     
+torch.nn.init.uniform_(tensor, a=0, b=1) 服从~U(a,b)      
+通常来说，对于矩阵 A ，我们使用随机高斯分布初始化，并对于矩阵 B 使用全 0 初始化，使得在初始状态下这两个矩阵相乘的结果为 0 。这样能够保证在初始阶段时，只有SD模型（主模型）生效。    
 
+    W_A = nn.Parameter(torch.empty(input_dim, rank)) # LoRA weight A
+    W_B = nn.Parameter(torch.empty(rank, output_dim)) # LoRA weight B
+    # Initialization of LoRA weights
+    nn.init.kaiming_uniform_(W_A, a=math.sqrt(5))
+    nn.init.zeros_(W_B)
 
-通常来说，对于矩阵 ，我们使用随机高斯分布初始化，并对于矩阵 使用全 初始化，使得在初始状态下这两个矩阵相乘的结果为 。这样能够保证在初始阶段时，只有SD模型（主模型）生效。    
+    def regular_forward_matmul(x, W):
+        h = x @ W
+    return h
+
+    def lora_forward_matmul(x, W, W_A, W_B):
+        h = x @ W  # regular matrix multiplication
+        h += x @ (W_A @ W_B) * alpha # use scaled LoRA weights
+    return h
+
 LoRA大幅降低了SD模型训练时的显存占用，因为并不优化主模型（SD模型），所以主模型对应的优化器参数不需要存储。但计算量没有明显变化，因为LoRA是在主模型的全参梯度基础上增加了“残差”梯度，同时节省了主模型优化器更新权重的过程。   
 
+可以拔插式的使用       
+按照通常的做法，会给所有层，即三个输入变换矩阵 to_k, to_q, to_v 和一个输出变换矩阵 to_out.0 加 LoRA。     
 
-如何能够小样本分支模型去控制输出？？？  
-秩几阶的影响是什么？？？   
-怎么放置才能产生影响？？？   
+rank取多少？？？？？     
 
 效果弱于DreamBooth，主流的训练方式的网络结构目前在尽量追求DreamBooth的效果，但是具体效果是很多因素影响的。   
-控制力弱（虽然即插即拔，但是LoRA训练方法混乱，训练成品良莠不齐，很难有效把控）  
+控制力弱（虽然即插即拔，但是LoRA训练方法混乱，训练成品良莠不齐，很难有效把控）？？？？？    
+
+
+##### 具体的实现
+首先取出原始模型的各个层的参数并进行冻结：    
+
+    for i, param in enumerate(model.parameters()):
+        param.requires_grad = False # freeze the model - train adapters later
+    
+      if param.ndim == 1:
+      # cast the small parameters (e.g. layernorm) to fp32 for stability
+              param.data = param.data.to(torch.float32)
+`model.parameters()` 返回模型中的可训练参数（包括权重和偏差），通过循环遍历每个参数并获取其索引和值（param）。       
+1维表示参数是一个向量（例如，用于层归一化或偏差）。      
+如果参数是1维的，这一行代码将参数的数据类型（dtype）从默认的 `torch.float16` 转换为 `torch.float32`。这是为了提高稳定性，因为一些小参数（如层归一化）可能在 `float16` 下会出现数值不稳定的情况。        
+设置Lora 的参数       
+
+    from peft import LoraConfig, get_peft_model 
+    config = LoraConfig(
+      r=16, #low rank
+      lora_alpha=32, #alpha scaling， scale lora weights/outputs
+      # target_modules=["q_proj", "v_proj"], #if you know the 
+      lora_dropout=0.05,
+      bias="none",
+      task_type="CAUSAL_LM" # set this for CLM or Seq2Seq
+    )
+使用PEFT（Performer Enhanced with Factorized Transformers）库创建和配置一个PEFT模型。PEFT是对Transformer模型的一种改进，使用了低秩近似来提高模型的效率和可扩展性。
+
+    model = get_peft_model(model, config)
+    print_trainable_parameters(model)
+使用 `get_peft_model` 函数来创建一个PEFT模型。这个函数的第一个参数是一个现有的模型（可能是一个普通的Transformer模型），第二个参数是之前定义的 `LoraConfig` 实例，用于配置PEFT模型的参数。这一行代码将返回一个配置好的PEFT模型，然后将其赋值给变量 `model`。相当于把Lora的参数注入现有的模型中。        
+
+数据模型放在Trainer中进行训练：       
+
+    trainer = Trainer(
+        model=model, 
+        train_dataset=dataset['train'],
+        args=TrainingArguments(
+            per_device_train_batch_size=4, 
+            gradient_accumulation_steps=4,
+            warmup_steps=100, 
+            max_steps=200, 
+            learning_rate=2e-4, 
+            fp16=True,
+            logging_steps=1, 
+            output_dir='outputs'
+        ),
+        data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    )
+    model.config.use_cache = False  
+    trainer.train()
+1. `Trainer` 实例的创建：
+
+- `model=model`: 将之前创建的PEFT模型传递给`Trainer`，以指定训练的模型。
+
+- `train_dataset=dataset['train']`: 传入训练数据集，这个数据集将用于训练模型。
+
+- `args=TrainingArguments(...)`: 创建一个`TrainingArguments`实例，用于配置训练参数。在这里你指定了批大小、梯度累积步数、学习率等参数。
+
+- `data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False)`: 用于处理数据批次的数据收集器。在这里，`DataCollatorForLanguageModeling` 用于根据语言模型任务处理数据。
+
+`trainer.train()`： 这一行代码启动了模型训练。`Trainer` 将使用你提供的配置和数据进行训练，训练过程将执行指定的最大步数（`max_steps`）。
+
+
+
+
+
+
+
+
+
+
+LoRA 在 SD 中的三种运用      
+LoRA 在 SD 的科研中有着广泛的应用。按照使用 LoRA 的动机，我们可以把 LoRA 的应用分成：1） 还原单幅图像；2）风格调整；3）训练目标调整。通过学习这些应用，我们能更好地理解 LoRA 的本质。      
+
+##### 还原单幅图像      
+SD 只是一个生成任意图片的模型。为了用 SD 来编辑一张给定的图片，我们一般要让 SD 先学会生成一张一模一样的图片，再在此基础上做修改。可是，由于训练集和输入图片的差异，SD 或许不能生成完全一样的图片。解决这个问题的思路很简单粗暴：我们只用这一张图片来微调 SD，让 SD 在这张图片上过拟合。这样，SD 的输出就会和这张图片非常相似了。     
+较早介绍这种提高输入图片保真度方法的工作是 Imagic，只不过它采取的是完全微调策略。后续的 DragDiffusion 也用了相同的方法，并使用 LoRA 来代替完全微调。近期的 DiffMorpher 为了实现两幅图像间的插值，不仅对两幅图像单独训练了 LoRA，还通过两个 LoRA 间的插值来平滑图像插值的过程。?????         
+插值和图图相似度约束        
+DiffMorpher 工作的一小部分，完成一个简单的图像插值工具        
+在单张图片上训练 SD LoRA     
+原理很简单：我们对两张图片分别训练一个 LoRA。之后，为了获取两张图片的插值，我们可以对两张图片 DDIM Inversion 的初始隐变量及两个 LoRA 分别插值，用插值过的隐变量在插值过的 SD LoRA 上生成图片就能得到插值图片。？？？？？         
+这两个 LoRA 模型的配置文件我们已经在前文见过了。相比普通的风格化 LoRA，这两个 LoRA 的训练轮数非常多，有 200 轮。设置较大的训练轮数能保证模型在单张图片上过拟合。     
+图像插值     
+
+    import torch
+    from inversion_pipeline import InversionPipeline
+
+    lora_path = 'ckpt/mountain.safetensor'
+    lora_path2 = 'ckpt/mountain_up.safetensor'
+    sd_path = 'runwayml/stable-diffusion-v1-5'
+
+
+    pipeline: InversionPipeline = InversionPipeline.from_pretrained(
+        sd_path).to("cuda")
+    pipeline.load_lora_weights(lora_path, adapter_name='a')
+    pipeline.load_lora_weights(lora_path2, adapter_name='b')
+
+    img1_path = 'dataset/mountain/mountain.jpg'
+    img2_path = 'dataset/mountain_up/mountain_up.jpg'
+    prompt = 'mountain'
+    latent1 = pipeline.inverse(img1_path, prompt, 50, guidance_scale=1)
+    latent2 = pipeline.inverse(img2_path, prompt, 50, guidance_scale=1)
+    n_frames = 10
+    images = []
+    for i in range(n_frames + 1):
+        alpha = i / n_frames
+        pipeline.set_adapters(["a", "b"], adapter_weights=[1 - alpha, alpha])
+        latent = slerp(latent1, latent2, alpha)
+        output = pipeline(prompt=prompt, latents=latent,
+                          guidance_scale=1.0).images[0]
+        images.append(output)
+使用已经写好的 DDIM Inversion 方法来得到两张图片的初始隐变量。     
+最后开始生成不同插值比例的图片。根据混合比例 alpha    来融合 LoRA 模型的比例。随后，我们再根据 alpha 对隐变量插值。用插值隐变量在插值 SD LoRA 上生成图片即可得到最终的插值图片。        
+下面两段动图中，左图和右图分别是无 LoRA 和有 LoRA 的插值结果。可见，通过 LoRA 权重上的插值，图像插值的过度会更加自然。    
+![alt text](assets_picture/stable_diffusion/image-155.png)      
+
+
+
+##### 风格调整        
+LoRA 在 SD 社区中最受欢迎的应用就是风格调整了。我们希望 SD 只生成某一画风，或者某一人物的图片。为此，我们只需要在一个符合我们要求的训练集上直接训练 SD LoRA 即可。   
+基于 SD 的视频模型 AnimateDiff，它用 LoRA 来控制输出视频的视角变换，而不是控制画风。     
+我希望把《弹丸论破》的画风——一种颜色渐变较多的动漫画风——应用到一张普通动漫画风的图片上。       
+由于我的目标是拟合画风而不是某一种特定的物体，我直接选取了 50 张左右的游戏 CG 构成训练数据集，且没有对图片做任何处理。训风格化 LoRA 时，文本标签几乎没用，我把所有数据的文本都设置成了游戏名 danganronpa。    
+
+    {"file_name": "1.png", "text": "danganronpa"}
+    ...
+    {"file_name": "59.png", "text": "danganronpa"}
+LoRA rank 设置为 8。我一共训了 100 轮，但发现训练后期模型的过拟合很严重，其实令 n_epochs 为 10 到 20 就能有不错的结果。50 张图片训 10 轮最多几十分钟就训完。    
+由于训练图片的内容不够多样，且图片预处理时加入了随机裁剪，我的 LoRA 模型随机生成的图片质量较低。于是我决定在图像风格迁移任务上测试该模型。具体来说，我使用了 ControlNet Canny 加上图生图 （SDEdit）技术。相关的代码如下：         
+
+    from diffusers import StableDiffusionControlNetImg2ImgPipeline, ControlNetModel
+    from PIL import Image
+    import cv2
+    import numpy as np
+
+    lora_path = '...'
+    sd_path = 'runwayml/stable-diffusion-v1-5'
+    controlnet_canny_path = 'lllyasviel/sd-controlnet-canny'
+
+    prompt = '1 man, look at right, side face, Ace Attorney, Phoenix Wright, best quality, danganronpa'
+    neg_prompt = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, {multiple people}'
+    img_path = '...'
+    init_image = Image.open(img_path).convert("RGB")
+    init_image = init_image.resize((768, 512))
+    np_image = np.array(init_image)
+
+    # get canny image
+    np_image = cv2.Canny(np_image, 100, 200)
+    np_image = np_image[:, :, None]
+    np_image = np.concatenate([np_image, np_image, np_image], axis=2)
+    canny_image = Image.fromarray(np_image)
+    canny_image.save('tmp_edge.png')
+
+    controlnet = ControlNetModel.from_pretrained(controlnet_canny_path)
+    pipe = StableDiffusionControlNetImg2ImgPipeline.from_pretrained(
+        sd_path, controlnet=controlnet
+    )
+    pipe.load_lora_weights(lora_path)
+
+    output = pipe(
+        prompt=prompt,
+        negative_prompt=neg_prompt,
+        strength=0.5,
+        guidance_scale=7.5,
+        controlnet_conditioning_scale=0.5,
+        num_inference_steps=50,
+        image=init_image,
+        cross_attention_kwargs={"scale": 1.0},
+        control_image=canny_image,
+    ).images[0]
+    output.save("tmp.png")
+使用它生成图片的重要参数有：
+
+strength：0~1 之间重绘比例。越低越接近输入图片。    
+controlnet_conditioning_scale： 0~1 之间的 ControlNet 约束比例。越高越贴近约束。  
+cross_attention_kwargs={"scale": scale}：此处的 scale 是 0~1 之间的 LoRA 混合比例。越高越贴近 LoRA 模型的输出。      
+![alt text](assets_picture/stable_diffusion/image-156.png)     
+![alt text](assets_picture/stable_diffusion/image-157.png)     
+![alt text](assets_picture/stable_diffusion/image-158.png)       
+可以看出，输出图片中人物的画风确实得到了修改，颜色渐变更加丰富。我在几乎没有调试 LoRA 参数的情况下得到了这样的结果，可见虽然训练一个高质量的随机生成新画风的 LoRA 难度较高，但只是做风格迁移还是比较容易的。       
+
+LoRA 风格化的本质还是修改输出图片的分布，数据集的质量基本上决定了生成的质量，其他参数的影响不会很大（包括训练图片的文本标签）     
+
+
+
+##### 训练目标调整      
+最后一个应用就有一点返璞归真了。LoRA 最初的应用就是把一个预训练模型适配到另一任务上。比如 GPT 一开始在大量语料中训练，随后在问答任务上微调。对于 SD 来说，我们也可以修改 U-Net 的训练目标，以提升 SD 的能力。        
+有不少相关工作用 LoRA 来改进 SD。比如 Smooth Diffusion 通过在训练目标中添加一个约束项并进行 LoRA 微调来使得 SD 的隐空间更加平滑。近期比较火的高速图像生成方法 LCM-LoRA 也是把原本作用于 SD 全参数上的一个模型蒸馏过程用 LoRA 来实现。     
+
+
 
 
 
@@ -1705,6 +1972,26 @@ refiner model和base model在结构上有一定的不同，其UNet的结构如�
 训练过程，训练时长机器        
 评价指标数据        
 训练遇到的难题及解决         
+
+
+#### 成果
+![alt text](assets_picture/stable_diffusion/1.png)  
+![alt text](assets_picture/stable_diffusion/2.png)   
+![alt text](assets_picture/stable_diffusion/image-165.png)     
+
+对比太乙      
+
+![alt text](assets_picture/stable_diffusion/image-167.png)     
+自己
+
+![alt text](assets_picture/stable_diffusion/image-168.png)   
+太乙中英
+
+![alt text](assets_picture/stable_diffusion/image-169.png)   
+太乙中文      
+
+
+
 
 
 #### 评价指标
