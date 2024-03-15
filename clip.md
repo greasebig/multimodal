@@ -31,8 +31,9 @@ prompt template。比如对于ImageNet的类别，首先把它变成"A photo of 
 算两个loss，一个是image的，一个是text的，最后把两个loss加起来就平均。
 这个操作在对比学习中是很常见的，都是用的这种对称式的目标函数
 ```
-- CLIP核心实现的伪代码
-![image](https://github.com/greasebig/multimodal/assets/121388156/a1536d43-64c1-4c98-bb81-a974556105ca)
+- CLIP核心实现的伪代码    
+encoder后再经过线性映射统一到同一维度，计算余弦相似性，loss采用交叉熵损失label分别对余弦矩阵两个维度计算，loss取平均          
+![image](https://github.com/greasebig/multimodal/assets/121388156/a1536d43-64c1-4c98-bb81-a974556105ca)      
 ```得到对应的特征之后，再经过一个投射层（即W_i和W_t)，投射层的意义是学习如何从单模态变成多模态，
 投射完之后再做L2 norm，就得到了最终的用来对比的特征I_e和T_e，
 

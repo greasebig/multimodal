@@ -538,11 +538,22 @@ LOSS计算：边框回归loss变为CIOU loss，边框回归loss演进：MSE loss
 yolov5抛弃了MaxIOU匹配规则而采用shape匹配规则，计算标签box和当前层的anchors的宽高比，即:wb/wa,hb/ha。如果宽高比大于设定的阈值说明该box没有合适的anchor，在该预测层之间将这些box当背景过滤掉     
 0.5-4         
 1). 不同于yolov3,yolov4，其gt box可以跨层预测，即有些gt box在多个预测层都算正样本；      
-2).不同于yolov3,yolov4，其gt box可匹配的anchor数可为3~9个，显著增加了正样本的数量。不再是gt box落在那个网格就只由该网格内的anchor来预测，而是根据中心点的位置增加两个邻近的网格的anchor来共同预测。     
+2).不同于yolov3,yolov4，其gt box可匹配的anchor数可为3~9个，显著增加了正样本的数量。      
+不再是gt box落在那个网格就只由该网格内的anchor来预测，而是根据中心点的位置增加两个邻近的网格的anchor来共同预测。     
 (3) 跨anchor预测（c）      
 每个层级每个格子有三个anchor，yolov3、yolov4只能匹配上三个中的一个，而yolov5可以多个匹配上。   
 具体方法：         
 不同于IOU匹配，yolov5采用基于宽高比例的匹配策略，GT的宽高与anchors的宽高对应相除得到ratio1，anchors的宽高与GT的宽高对应相除得到ratio2，取ratio1和ratio2的最大值作为最后的宽高比，该宽高比和设定阈值（默认为4）比较，小于设定阈值的anchor则为匹配到的anchor。        
+
+负样本和忽略样本具体怎么设置？？？？        
+yolov5正负样本分配步骤：   
+
+步骤1：对每一个GT框，分别计算它与9种anchor的宽与宽的比值、高与高的比值；
+
+步骤2：在宽比值、高比值这2个比值中，取最极端的一个比值，作为GT框和anchor的比值；
+
+步骤3：得到GT框和anchor的比值后，若这个比值小于设定的比值阈值，那么这个anchor就负责预测GT框，这个anchor的预测框就被称为正样本，所有其它的预测框都是负样本。
+
 
 
 - build_targets
@@ -811,7 +822,7 @@ loss设计的思想在图中一目了然)：
 
 
 
-### 定义：    
+### 目标检测定义：    
 
 目标检测是分类与定位的结合    
 目标检测目前有两类流行算法:  
