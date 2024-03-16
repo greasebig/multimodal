@@ -1,6 +1,6 @@
 # CLIP
 结构        
-
+![Alt text](assets_picture/clip/image-1.png)
 
 
 2021
