@@ -51,7 +51,7 @@
 模型框架选择——RoI Transformer      
 由于鸟瞰视角、高度复杂的背景以及物体的不同外观，航空图像中的物体检测是计算机视觉中一项活跃但具有挑战性的任务。特别是在检测航拍图像中密集的物体时，常规目标检测中的水平proposals（RoIs）与目标之间的不匹配将进一步影响分类和定位。这导致最终对象分类置信度和定位精度之间普遍存在偏差。        
 ![alt text](assets_picture/competetion/image-5.png)       
-RoI Transformer 的核心思想是在 RoI 上应用空间变换，并在定向边界框（OBB）注释的监督下学习变换参数。 RoI Transformer 重量轻，可以轻松嵌入到探测器中进行定向物体检测。    
+RoI Transformer 的核心思想是在 RoI 上应用空间变换，并在定向边界框（OBB）注释的监督下学习变换参数。 RoI Transformer 重量轻，可以轻松嵌入到探测器中进行定向物体检测。？？？？？？    
 RoI Transformer 是一个三阶段检测模型，主要由RRoI Leaner和RRoI Wraping两部分组成，核心思想是把RPN输出的水平锚框HRoI转换为旋转锚框RRoI。此策略无需增加锚点的数量且可以获得精确的RRoI。       
 
 Backbone选择 —— Swin-Transformer Large    
@@ -65,6 +65,7 @@ Neck选择 —— PANet
 PANet在FPN自深向浅融合的基础上增添了一个自浅向深的融合路径，可以提高浅层信息在深层网络中的流动效率。      
 为了增强特征的表达能力,用 pafpn作为特征融合层,可以更好地整合不同尺度的特征信息。       
 ![alt text](assets_picture/competetion/image-7.png)      
+？？？？？         
 PAFPN主要由三个组成部分组成：FPN、级联注意力机制和线性回归层。
 
 PAFPN的特点是引入了一种级联注意力机制，可以融合不同层次的特征图，从而提高目标检测的精度。同时，PAFPN还采用了特征金字塔网络（FPN），可以在不同尺度下提取特征，从而更好地适应各种目标的尺度变化。

@@ -546,6 +546,9 @@ DDIM为什么有效？？？？
 ![Alt text](assets_picture/stable_diffusion/image-103.png)   
 2. 第二，为什么非要一步一步降噪，跳步行不行？   
 ![Alt text](assets_picture/stable_diffusion/image-104.png)   
+p(x_t-1 | x_t, x_0) 表示在已知 x_t 和 x_0 的条件下，x_t-1 发生的概率。       
+![alt text](assets_picture/stable_diffusion/1710601001734.png)     
+这个式子可以由套用多次二个变量的贝氏定理及条件机率的定义导出      
 
 ddim原理
 ![Alt text](assets_picture/stable_diffusion/image-105.png)   
@@ -1231,6 +1234,66 @@ rank取多少？？？？？
 控制力弱（虽然即插即拔，但是LoRA训练方法混乱，训练成品良莠不齐，很难有效把控）？？？？？    
 
 
+##### LyCORIS
+LyCORIS 是对 LoRA 的增强，其实主要包含两个独立的改进：
+
+LoCon (Conventional LoRA): LoRA 只调整了 cross-attention layers，LoCon 还用同样的方法调整了 ResNet 矩阵。更多信息参见 LoCon - LoRA for Convolution Network。
+
+LoHa (LoRA with Hadamard Product): 用 Hadamard Product 替换掉了原方法中的矩阵点乘，理论上在相同的  下能容纳更多（丢失更少）的信息。该方法来自论文 FedPara Low-Rank Hadamard Product For Communication-Efficient Federated Learning。 
+
+LyCORIS 还实现了其他几种对 LoRA 改进的变体，因为很少有人用，这里不展开介绍。 作者：艾拉酱的内存条 
+
+准备训练集       
+数据集准备       
+安装完成后开始准备数据集,推荐两个图片搜集软件,这样不用自己到处爬取了.一个是Grabber和Hydrus.我用了一下,Grabber是不错的,下载链接在参考资料里.    
+
+此外还可以使用Release first release · derrian-distro/Quick_Image_Sort (github.com)来进行图片整理排序.
+
+
+收集整理需要训练的角色的图片，20 张以上即可。原则是：
+
+要能清晰地体现出角色特征，例如训练集要覆盖角色的正脸、侧脸、全身、站坐姿等
+
+在保留角色特征的基础上，其他方面尽可能 various，例如不同的角度、场景、风格等      
+
+Stable Diffusion 2.x 虽然训练步数更多，但是训练集中过滤掉了 NSFW 的图片。注意：SD 1.5 和 2.x 不兼容，但基于 SD1.5 训练的模型可以用在任何一个基于 SD1.5 的 checkpoint 上。而社区的大部分二次元 Checkpoint 模型基于 SD1.5 训练。
+
+如果你在训练二次元 waifu，建议选择基于 SD1.5 的 checkpoint 作为基础模型，例如 Anything V5、Counterfeit V3、AbyssOrangeMix3 等。 作者：艾拉酱的内存条 
+
+三次元图更接近 SD 原始训练集，一般不需要。
+
+二次元模型可以选择你的基础模型配套的 VAE，或者选择 notebook 中推荐的 anime.vae。 
+
+4.2. Data Annotation       
+这一步为训练集自动生成 prompt text。脚本的注释中已经给了明确的说明：
+
+Use BLIP Captioning for: General Images
+
+Use Waifu Diffusion 1.4 Tagger V2 for: Anime and Manga-style Images 
+
+当然有了图之后,也需要标注,也就是label标签,可以选择deepbooru或者BLIP生成标注数据.
+
+Pruning Captions
+一般的准则:
+
+如果你要训练一个画家作品的Lora,那给这些作品打标签时需要去掉关于这个作家的标签,如果是一个人物Lora,那需要去除人物的名字相关tag以及一些决定性的特征.这样这种风格或人物就存在与其他标签上.
+剔除任何应该隐含在所有生成结果中的标签或任何会偏离训练数据的标签
+比如关于一个人物的Lora模型,那么这个人物名字就没必要作为prompt了,所以就要去掉这个tag.
+
+编辑标签可以用上述说的stable diffusion中的dataset-editor或者软件BooruDatasetTagManager.
+
+
+建议从生成的 tags 中移除掉角色自身的特征，比如：long hair, wolf ears, wolf girl, red eyes, brown hair 等。移除掉 tag 代表着将模型将这些特征当作 general 的情况去对待，换句话说，我们希望模型输出的所有图片都带有这些特征。相反，角色本身之外的特征应当用 tag 标识出，比如角色的几件特定穿着（皮肤），相应的，在画图时也可以通过相同的 tag 来触发这些特征。         
+
+
+注意 LyCORIS 和 LoRA 的推荐配置有很大不同。LyCORIS 模型作者推荐 alpha 设置为 1（咱猜测应该是指  设置为 1），dimension <= 32（大于 64 的值会导致  超过原矩阵维度） 。这篇文章 对 dim 和 rank 的取值做了大量实验，对于 LyCORIS，dim 取值似乎并没有很大的影响。         
+
+
+
+
+
+
+
 ##### 具体的实现
 首先取出原始模型的各个层的参数并进行冻结：    
 
@@ -1414,9 +1477,136 @@ LoRA 风格化的本质还是修改输出图片的分布，数据集的质量基
 
 
 
-##### 训练目标调整      
-最后一个应用就有一点返璞归真了。LoRA 最初的应用就是把一个预训练模型适配到另一任务上。比如 GPT 一开始在大量语料中训练，随后在问答任务上微调。对于 SD 来说，我们也可以修改 U-Net 的训练目标，以提升 SD 的能力。        
+##### 风格迁移实战
+LoRA训练模型的主要优势之一，就是它比Dreambooth模型更小，而且更加模块化。     
+LoRA最初设计是为了教模型学习新概念，目前为止大多数用来训练角色。然而，如果你仔细思考，主题和角色都是一种概念，艺术风格也是概念。      
+
+
+我想要训练的是Vanilla模型（Stable Diffusion 1.5 ema 以及anything 4.5 pruned模型）。   
+
+给你的图片增加说明文字，处理好所有的图片之后，进入gui界面，点击utilities标签，选择BLIP Captioning       
+如果想要训练特定风格，你可以在这里增加前缀，比我们这里输入“VOFANstyle”       
+
+这里是我要修改的第二个图片描述，可以看到这里的描述是错误的（a woman sitting at a table with a book and a cigarette），很明显这里缺失了一些东西，所以我们把它改为：       
+![alt text](assets_picture/stable_diffusion/image-170.png)         
+“a young woman with medium length hair, closed eyes, wearing a white collored blouse, green dress, school uniform, green hair ribbon, desaturated light brown ribbon, looking up to the right side, book in the foreground, blurry building in the background”     
+我觉得这些足以描述图片里的内容了，当然，这一步是非常耗时间的，因为你需要检查很多的文字，如果想要获得良好的数据集，就需要恰当处理这些说明文字。所以，我需要开始做这些事情，然后开始训练。     
+
+左侧是我打开的数据集里的图片，右侧是它的描述文字，第一眼看去，我们可以发现其中的很多都是正确的。比如有婚纱、手套、肘部手套、冠状头饰、白色连衣裙等等，都是图中有的内容。      
+我不希望对每个细节都作出修改，但在这里有些东西是需要改变的，比如这里的角色描述是有名字参照的，如Mikasa Ackerman、Annie Leonhardt、Ymir（图片中并不存在），还有Christa Renz。这里的名字对我们来说是个问题，就像在第一部分说过的那样，我们希望描述的是所有我们希望改变的东西。如果将名字留下来，它就会作为一个记号，会影响LoRA最终的风格。     
+
+##### 风格迁移实战二
+实战训练一个人物Lora,这里就懒得在网上一个一个找角色的图了,使用Grabber搜索角色名,比如星野爱,hoshino_ai.     
+
+SDXL训练数据集制作
+首先，我们需要对数据集进行清洗，和传统深度学习时代一样，数据清洗工作依然占据了AIGC时代模型训练70%-80%左右的时间。
+
+并且这个过程必不可少，因为数据质量决定了机器学习的上限，而算法和模型只是在不断逼近这个上限而已。
+
+我们需要筛除分辨率较低，质量较差**（比如说768*768分辨率的图片< 100kb）**，存在破损，以及和任务目标无关的数据，接着去除数据里面可能包含的水印，干扰文字等，最后就可以开始进行数据标注了。
+
+大家注意，一般我们会将手动补充的特殊tag放在第一位，因为和caption标签不同，tags标签是有顺序的，最开始的tag权重最大，越靠后的tag权重越小。   
+
+目前Stable Diffusion XL全参微调的训练成本是Stable Diffusion之前系列的2-3倍左右，而基于Stable Diffusion XL训练LoRA的成本与之前的系列相比并没有太多增加，故训练LoRA依旧是持续繁荣SDXL生态的高效选择。
+
+猫女数据集     
+确定好数据集主题后，我们需要保证数据集的质量，Rocky总结了以下的数据集筛选要求：
+
+当我们训练人物主题时，一般需要10-20张高质量数据；当我们训练画风主题时，需要100-200张高质量数据；当我们训练抽象概念时，则至少需要200张以上的数据。
+不管是人物主题，画风主题还是抽象概念，一定要保证数据集中数据的多样性（比如说猫女姿态，角度，全身半身的多样性）。
+每个数据都要符合我们的审美和评判标准！每个数据都要符合我们的审美和评判标准！每个数据都要符合我们的审美和评判标准！
+
+猫女数据集一共有22张图片，包含了猫女的不同姿态数据
+我们要在标注文件的开头添加“catwomen”作为猫女的触发词。      
+
+除了对数据进行标注，我们还需要对数据的标注进行清洗，删除一些概念与触发词重合的标签。为什么我们要进行数据标注的清洗呢？因为如果不对标注进行清洗，会导致训练时的tag污染。
+
+我们拿猫女数据集为例，我们想要让SDXL LoRA模型学习猫女的主要特征，包括脸部特征，服装特征（最具猫女特点的黑色皮衣和黑色眼罩）等，我们想让“catwomen”学习到这些特征。但是自动标注会给数据打上一些描述脸部特征和服装特征的tag，导致猫女的主要特征被这些tag分走，从而导致tag污染。这样就会导致很多精细化的特征丢失在自动标注的tag中，使得SDXL LoRA在生成猫女图片时缺失黑色皮衣或者黑色眼罩等。
+
+所以我们需要删除自动标注的脸部，服装等tag，从而使得保留下来的触发词等标签是SDXL LoRA模型着重需要学习的。
+
+stable-diffusion-webui-dataset-tag-editor，可以对标签进行批量处理，非常方便。
+
+network_dim：设置LoRA的RANK，设置的数值越大表示表现力越强，但同时需要更多的显存和时间来训练。
+
+network_alpha：设置缩放权重，用于防止下溢并稳定训练的alpha值。
+![alt text](assets_picture/stable_diffusion/1710598418350.png)     
+？？？
+
+
+![alt text](assets_picture/stable_diffusion/1710598356705.png)        
+
+
+设置LoRA的不同权重
+
+接下来，我们设置LoRA的权重分别为[0.2, 0.4, 0.6, 0.8, 1]，进行对比测试        
+
+
+
+
+
+
+
+
+
+
+##### 一些任务，controlnet,lora
+首先是文生图其目是提供衣服裁切样式的设计 ，配合 训练的大模型一起使用 ，主要检查模型是否过拟合 ，直观的方式就是一次生 成多张图片 ，观察衣服的裁切样式、配色、质感等是否多样。 图生图的目的 主要是进行人物的细化包括例如金属质感、布料质感的细化以及光影的塑造。        
+
+场景单体建筑       
+单体建筑的AI绘图尝试了两种方式 ，分别如下。
+方式一：AI绘图+PS修改
+
+概念探索：利用midjourney生成大量建筑的草图 ，将草图收集整理并由 项目组筛选。
+2. 模型训练与验证：确定训练集后 ，利用草稿图进行图生图来模型验证 ，验证结果如下。
+
+3. 项目使用： 模型确认可行后， 项目可以结合Control net中的Canny和 Depth来解决AI生成不按设计的问题。接着通过图生图（迭代） 和文生图 （多样性） 对图像进行优化 ，主要针对周边环境、画面风格等方面进行调 整 ，最后从AI结果中选取合适的图像利用Photoshop进行修改完成。
+
+3.项目使用 ：首先对整张图进行图生图确定一个大致的建筑风格 ，接着对局 部不满意的地方进行裁切， 图生图迭代直到获得满意的效果 ，最终将各个部分位置进行拼接 ，补充和修改细节完成成图。    
+![alt text](assets_picture/stable_diffusion/image-172.png)    
+
+刺绣法线流程
+
+1. 素材整理：利用midjourney生产大量关于刺绣的美术资源。生产获得的 资源可以直接使用或者收集获取的素材训练LoRA使用。
+
+2. 图像放大：直接由midjourney生产的图存在分辨率不足的问题 ，使用 Stable diffusion图生图的Tiled Diffusion和Tiled Vae对图像进行放大。 3. 法线生成:使用PhotoShop的转法线功能 ，生成刺绣的法线图。
+
+![alt text](assets_picture/stable_diffusion/image-173.png)         
+
+
+场景氛围：用于氛围细节细化和风格迁移。   
+![alt text](assets_picture/stable_diffusion/image-174.png)
+A.氛围细节细化。如图所示 ，使用3D辅助的方式搭建场景白模的构图和前后 关系 ，利用control net中的Canny和Depth限定图像的结构关系。通过不断 调整提示词和LoRA的权重来实现图像的迭代。     
+
+
+
+
+
+
+
+
+##### 训练目标调整？？？？？？      
+最后一个应用就有一点返璞归真了。LoRA 最初的应用就是把一个预训练模型适配到另一任务上。比如 GPT 一开始在大量语料中训练，随后在问答任务上微调。     
+对于 SD 来说，我们也可以修改 U-Net 的训练目标，以提升 SD 的能力。        
 有不少相关工作用 LoRA 来改进 SD。比如 Smooth Diffusion 通过在训练目标中添加一个约束项并进行 LoRA 微调来使得 SD 的隐空间更加平滑。近期比较火的高速图像生成方法 LCM-LoRA 也是把原本作用于 SD 全参数上的一个模型蒸馏过程用 LoRA 来实现。     
+
+我的数据集训练了157张图片     
+
+随后是network rank和network alpha设置，通常来说，你应该保持跟我一样或者相同的数值。对于768×768像素这样的高分辨率图片，使用更高的network rank是个好主意。对于非动漫模型的风格化训练，将其设置为200或者更好会更好一些。    
+根据我个人的经验，在数值256左右的时候会开始得到糟糕的结果，所以我建议不要设置那么高。或者，如果你想要这样高的设置，就需要进一步降低unet学习频率。   
+26.Network Rank (Dimension)：特征维度 ，维度提升有助于学会细节但是 模型的收敛速度变慢 ，更容易导致过拟合高分辨率通常需要更高的维度,推荐值为128。     
+
+如果你发现LoRA训练有些颜色问题，你可以启用颜色增强（color augmentation）功能        
+
+29.Stop text encoder training：停止学习文本编码器 ，在一个时间点适度停 止文本编码器学习是预防过拟合的一种方式。这里的数字表示到达训练步数 的百分比 ，一旦学习达到该百分比就会停止学习。如果是0则训练结束才会停止。     
+
+36.Shuffle caption：文本洗牌。当训练图像的文字说明是用逗号隔开的形式 ，则该选项可以每次都改变单词的顺序 ，有助于修正偏差 ，但如果文字说明是以句子的形式 ，该选项就没有意义 ，默认为关闭。  
+
+42.Clip skip：文本编码器跳过某些层的输出 ，例如选择“2”则使用倒数第二层进行输出 ，通常三次元选择1 ，二次元选择2 ，并且一些特定的模型有指定的要求 ，如SD2.0则默认使用倒数第二层。       
+
+![alt text](assets_picture/stable_diffusion/image-171.png)     
+
+
 
 
 
@@ -1975,6 +2165,16 @@ refiner model和base model在结构上有一定的不同，其UNet的结构如�
 评价指标数据        
 训练遇到的难题及解决         
 
+我们将Noah-Wukong数据集(100M)和Zero数据集(23M)用作预训练的数据集，先用cn-clip对这两个数据集的图文对相似性进行打分，取CLIP Score大于0.26的图文对作为我们的训练集。        
+剩下1M数据，数据量比较少         
+训练一个epoch       
+8*a100 一天        
+冻住stable-diffusion-v1-4(论文)模型的其他部分，只训练text encoder 以便保留原始模型的生成能力且实现中文概念的对齐。    
+第二个stage中将全部模型解冻，一起训练text encoder和diffusion model，以便diffusion model更好的适配中文guidance。    
+
+文本数据处理去除无意义标志符，如html这种        
+
+
 
 #### 成果
 ![alt text](assets_picture/stable_diffusion/1.png)  
@@ -2232,8 +2432,14 @@ sqrt_one_minus_alpha_prod
 根据公式加噪后返回加噪完成的图片torch.Size([4, 4, 64, 64])   
 
 ### 3.text_encoder
+IDEA-CCNL/Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese  
+在训练中文版的CLIP时，我们使用chinese-roberta-wwm作为语言的编码器，并将open_clip中的ViT-L-14应用于视觉的编码器。   
+ Chinese pre-trained BERT with Whole Word Masking.   
+ 科大讯飞开源
+
+
 encoder_hidden_states用以跨模态交互   
-encoder_hidden_states=text_encoder(batch["input_ids"])是tokenizer后对文字的编码信息torch.Size([4, 52])   
+encoder_hidden_states=text_encoder(batch["input_ids"])是tokenizer后对文字的编码信息  其形状torch.Size([4, 52])   
 bert模型    
 
 mask:torch.Size([4, 1, 1, 52])   
@@ -2241,11 +2447,11 @@ mask:torch.Size([4, 1, 1, 52])
 
 #### 3.1 bertembedding
 - (word_embed,),torch.Size([4, 52])到torch.Size([4, 52, 768])   
-One-Hot编码冗余太多、无法体现词与词之间的关系   
+One-Hot编码冗余太多（稀疏太多，几万个）、无法体现词与词之间的关系（方向性）   
 深度学习中一般采用词向量的表示形式   
 词向量（Word Vector），也被称为词嵌入（Word Embedding）   
-nn.Embedding具有一个权重，形状是（num_words，embedding_dim），例如对10个词，每个词用2维向量表征，对应的权重就是一个10 * 2的矩阵。Embedding的输入形状是N * W，N是batch size，W是序列的长度，输出的形状是N * W * embedding_dim。    
-有一个vocab.txt，两万多个，对应word_embed的weight(21128,768)    
+nn.Embedding具有一个权重，形状是（num_words，embedding_dim），例如对10个词，每个词用2维向量表征，对应的权重就是一个10 * 2的矩阵。Embedding的输入形状是N * W，N是batch size（这里是4），W是序列的长度（这里是52），输出的形状是N * W * embedding_dim（这里是768）。    
+有一个vocab.txt，两万多个，对应word_embed（nn.Embedding）的weight(21128,768)    
 #vocab_size：表示一共有多少个字需要embedding，  
 #emb_size:表示我们希望一个字向量的维度是多少。
 ```
@@ -2256,17 +2462,19 @@ nn.Embedding具有一个权重，形状是（num_words，embedding_dim），例�
 2: [.789789, .987987, .98798, .5789, .7896, .794] #五個隨機的floats來代表2 這個token
 }
 為什麼是5個數字呢？ 因為你embedding_dim設成5, 如果你設成384就會有384個隨機數字對應到每一個id
+
+从正态分布采样 
 ```
-从正态分布采样  
+ 
 - token_type_ids做embed(2,768)  
   embeddings = inputs_embeds + token_type_embeddings  
 - self.position_embeddings(512,768)   
 - embeddings=inputs_embeds + token_type_embeddings+position_embeddings
 -norm,dropout(0.1)  
 #### 3.2 bertencoder
-embeddings在进bertencoder  
+embeddings进bertencoder  
 headmask 12个, layer head mask=none   
-进入layer 12个
+进入layer (12个)
 - attention 
   - bertself attn  
   qkv需要transpose_for_scores，即得k后（torch.Size([4, 52, 768])）经过按头数重排  
@@ -2300,6 +2508,7 @@ pooled_output=torch.Size([4, 768])
 
 #### bert原理
 训练目标：  
+maximum likelihood estimation, MLE    
 BERT：通过最大似然估计（MLE）来训练模型，预测缺失的词汇和判断两个句子是否相邻。  
 CLIP：通过对比学习的方式，使得文本和图像在共享嵌入空间中有相似的表示，以便能够比较它们的语义关系。   
 
@@ -2317,6 +2526,25 @@ IDEA-CCNL/Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese
 在训练中文版的CLIP时，我们使用chinese-roberta-wwm作为语言的编码器，并将open_clip中的ViT-L-14应用于视觉的编码器。   
  Chinese pre-trained BERT with Whole Word Masking.   
  科大讯飞开源
+
+
+X是特征、是属性、是对待分类物体的观测与描述；X属于{x1:有无胡须，x2：有无喉结，x3：是否穿了裙子，。。。}     
+Y是分类结果；Y属于{0：男，1：女}    
+
+先验 P（Y）：P（0）= 0.5，先于看到图片就判断分类，反映的是被分类事物的自然规律，可有多次试验用大数定律逼近；    
+（事实结果）       
+Evidence（依据） P（X）：P（x1=1）= 0.2，P（X）是对于各特征的一个分布，与类别Y无关，是各特征自然出现的概率（即P（x1=1）= 0.2是指，没看到此人但估计其有胡子的概率是0.2）；顾名思义，这些特征是用来进行分类的判断依据、证据；     
+（事实前提）       
+后验 P（Y|X）：P（0|x1=0）= 0.7，看到图片之“后”，具有图中此人所展示的这些特征的一个人是男是女的概率（P（0|x1=0）= 0.7即看到一个有胡子的这个人是男人的概率是0.7）；   
+Likelihood（似然） P（X|Y）：P（x1=0|0）=0.66，被告知图中将会是一个男人，那么这个人有胡子的概率是0.66；    
+(反后验)   
+
+
+
+
+
+
+
 
 ### 4 unet_condition
 文生图，多模态信息交互方法：      

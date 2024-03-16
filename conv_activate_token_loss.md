@@ -60,6 +60,105 @@ weight (Tensor): the learnable weights of the module of shape
 dilation = 2  
 ![Alt text](assets_picture/conv/image-2.png)   
 
+
+DNN图像分类的问题   
+如果直接将图像根据各像素点的向量作为图片特征输入模型，例如LR、SVM、DNN等模型进行分类，理论上可行，但是面临以下问题：      
+图像的平移旋转、手写数字笔迹的变化等，会造成输入图像特征矩阵的剧烈变化，影响分类结果。即不抗平移旋转等。     
+一般图像像素很高，如果直接DNN这样全连接处理，计算量太大，耗时太长；参数太多需要大量训练样本       
+
+### 卷积的原理       
+卷积的本质是有效提取相邻像素间的相关特征，而1×1卷积显然没有此作用。      
+1×1卷积不识别空间模式，只融合通道。并常用来改变通道数，降低运算量和参数量。同时增加一次非线性变化，提升网络拟合能力。   
+
+![alt text](assets_picture/conv_activate_token_loss/image-28.png)    
+注意相乘的顺序是相反的，这是卷积的定义决定的。   
+
+
+CNN通过卷积核对图像的各个子区域进行特征提取，而不是直接从像素上提取特征。子区域称为感受野。      
+卷积运算：图片感受野的像素值与卷积核的像素值进行按位相乘后求和，加上偏置之后过一个激活函数（一般是Relu）得到特征图Feature Map。       
+卷积后都是输出特定形状的强度值，与卷积核形状差异过大的感受野输出为0（经过Relu激活），所以卷积核也叫滤波器Filter。         
+
+使用一个多通道卷积核对多通道图像卷积，结果仍是单通道图像（多通道分别卷积后加和得到最终结果）。要想保持多通道结果，就得使用多个卷积核。     
+![alt text](assets_picture/conv_activate_token_loss/image-21.png)      
+
+为什么有效？      
+能够对图像提取出想要的信息，能够对图像操作        
+![alt text](assets_picture/conv_activate_token_loss/image-22.png)     
+
+对图像的每个像素进行编号，用 x i,j
+表示图像的第行第列元素；用 W m,n
+表示卷积核filter第m行第n列权重，用 W b
+表示filter的偏置项；用 a i,j
+表示特征图Feature Map的第i行第j列元素；用 f
+表示激活函数(这个例子选择relu函数作为激活函数)。使用下列公式计算卷积：       
+![alt text](assets_picture/conv_activate_token_loss/1710588971496.png)     
+
+  
+如果卷积前的图像深度为D，那么相应的filter的深度也必须为D。我们扩展一下上式，得到了深度大于1的卷积计算公式：    
+D是深度（卷积核个数）      
+![alt text](assets_picture/conv_activate_token_loss/1710589034625.png)     
+
+
+### VGGnet：使用块、小尺寸卷积效果好
+VGGnet：使用块、小尺寸卷积效果好     
+而多个小尺寸卷积可以达到相同的效果，且参数量更小。还可以多次进行激活操作，提高拟合能力。      
+一个5×5卷积参数量25，可以替换成两个3×3卷积。，参数量为18。每个3×3卷积可以替换成3×1卷积加1×3卷积，参数量为12。     
+
+
+### SENet、CBAM特征通道加权卷积。注意力机制     
+
+SE模块，对各通道中所有数值进行全局平均，此操作称为Squeeze。比如28×28×128的图像，操作后得到128×1的向量。      
+此向量输入全连接网络，经过sigmoid输出128维向量，每个维度值域为（0,1），表示各个通道的权重      
+在正常卷积中改为各通道加权求和，得到最终结果    
+![alt text](assets_picture/conv_activate_token_loss/image-25.png)     
+Squeeze建立channel间的依赖关系；Excitation重新校准特征。二者结合强调有用特征抑制无用特征     
+能有效提升模型性能，提高准确率。几乎可以无脑添加到backbone中。根据论文，SE block应该加在Inception block之后，ResNet网络应该加在shortcut之前，将前后对应的通道数对应上即可      
+
+除了通道权重，CBAM还考虑空间权重，即：图像中心区域比周围区域更重要，由此设置不同位置的空间权重。CBAM将空间注意力和通道注意力结合起来。     
+![alt text](assets_picture/conv_activate_token_loss/image-26.png)    
+输入特征图F，经过两个并行的最大值池化和平均池化将C×H×W的特征图变成C×1×1的大小    
+经过一个共享神经网络Shared MLP(Conv/Linear，ReLU，Conv/Linear)，压缩通道数C/r (reduction=16)，再扩张回C，得到两个激活后的结果。     
+最后将二者相加再接一个sigmoid得到权重channel_out，再加权求和。      
+
+此步骤与SENet不同之处是加了一个并行的最大值池化，提取到的高层特征更全面，更丰富。       
+
+将上一步得到的结果通过最大值池化和平均池化分成两个大小为H×W×1的张量，然后通过Concat操作将二者堆叠在一起(C为2)，再通过卷积操作将通道变为1同时保证H和W不变，经过一个sigmoid得到spatial_out，最后spatial_out乘上一步的输入变回C×H×W，完成空间注意力操作
+
+总结：
+
+实验表明：通道注意力在空间注意力之前效果更好
+加入CBAM模块不一定会给网络带来性能上的提升，受自身网络还有数据等其他因素影响，甚至会下降。如果网络模型的泛化能力已经很强，而你的数据集不是benchmarks而是自己采集的数据集的话，不建议加入CBAM模块。要根据自己的数据、网络等因素综合考量。      
+
+
+
+
+
+### Depth wise和Pointwise降低运算量
+？？？？？？？？      
+卷积到底是一个卷积核乘以所有通道取平均？（或者说所有通道的单次卷积核一样参数？）还是有不一样的卷积核参数分别乘每个通道再相加？            
+传统卷积：一个卷积核卷积图像的所有通道，参数过多，运算量大。     
+![alt text](assets_picture/conv_activate_token_loss/image-23.png)     
+![alt text](assets_picture/conv_activate_token_loss/1710589629695.png)     
+Depth wise卷积：一个卷积核只卷积一个通道。输出图像通道数和输入时不变。缺点是每个通道独立卷积运算，没有利用同一位置上不同通道的信息       
+Pointwise卷积：使用多个1×1标准卷积，将Depth wise卷积结果的各通道特征加权求和，得到新的特征图    
+![alt text](assets_picture/conv_activate_token_loss/image-24.png)     
+![alt text](assets_picture/conv_activate_token_loss/1710589645980.png)       
+
+Group Conv组卷积      
+下图假设卷积核大小为k×k，输入矩阵channel数为 c in
+，卷积核个数为n（输出矩阵channel数）。组卷积分成g个组（group）      
+![alt text](assets_picture/conv_activate_token_loss/image-27.png)      
+
+
+
+### 为什么卷积核没有偶数的？     
+看不懂       
+
+
+
+
+
+
 ## conv3d
 3D conv的卷积核就是( c , k d , k h , k w )，其中k_d就是多出来的第三维，根据具体应用，在视频中就是时间维，在CT图像中就是层数维.   
 
@@ -644,7 +743,7 @@ We stack the convolved outputs together.
 
 
 
-## 分词器   
+## 分词器  tokenizer 
 由于神经网络模型不能直接处理文本，因此我们需要先将文本转换为数字，这个过程被称为编码 (Encoding)，其包含两个步骤：
 
 使用分词器 (tokenizer) 将文本按词、子词、字符切分为 tokens；   
@@ -1161,3 +1260,41 @@ mode：‘fan_in’ (default) 或者 ‘fan_out’. 使用fan_in保持weights的
 
 ## 量化
 当然压缩方式肯定不是直接四舍五入，那样会带来巨大的精度压缩损失。常见的量化方案有absolute-maximum和zero-point，它们的差异只是rescale的方式不同     
+
+
+
+## likelihood
+X是特征、是属性、是对待分类物体的观测与描述；X属于{x1:有无胡须，x2：有无喉结，x3：是否穿了裙子，。。。}     
+Y是分类结果；Y属于{0：男，1：女}    
+
+先验 P（Y）：P（0）= 0.5，先于看到图片就判断分类，反映的是被分类事物的自然规律，可有多次试验用大数定律逼近；    
+（事实结果）       
+Evidence（依据） P（X）：P（x1=1）= 0.2，P（X）是对于各特征的一个分布，与类别Y无关，是各特征自然出现的概率（即P（x1=1）= 0.2是指，没看到此人但估计其有胡子的概率是0.2）；顾名思义，这些特征是用来进行分类的判断依据、证据；     
+（事实前提）       
+后验 P（Y|X）：P（0|x1=0）= 0.7，看到图片之“后”，具有图中此人所展示的这些特征的一个人是男是女的概率（P（0|x1=0）= 0.7即看到一个有胡子的这个人是男人的概率是0.7）；   
+Likelihood（似然） P（X|Y）：P（x1=0|0）=0.66，被告知图中将会是一个男人，那么这个人有胡子的概率是0.66；    
+(反后验)   
+
+maximum likelihood estimation, MLE     
+最大似然估计     
+bert训练      
+
+机器学习的最终目的，是学习后验概率！！！即，在训练集上学习捕捉后验概率的分布。在测试时，一个新样本输入在验视其feature之后，分析分类结果的概率，实现对分类结果的预测！！
+
+对后验概率的直接估计是困难的。之所以称之为“贝叶斯分类器”，就是因为这里通过贝叶斯公式将对后验概率的估计转化为对likelihood * 先验 / Evidence的估计。其中，Evidence是各属性在自然界中的普世分布，当做已知。那么，对后验概率额的估计就转化为了对先验概率P（Y） 和 likelihood P(X|Y)的估计。      
+P(X|Y) = P(Y|X) * P(X) / P(Y) ，即，Likelihood等于后验 * Evidence / 先验     
+
+
+先验概率 P（Y）的估计：
+假设样本空间各样本之间服从i.i.d （Indenpendent Identical Distribution）独立同分布，那么一句大数定律P（Y）= |Dc| / |D|，Dc是D中分类结果为c类的样本集合；
+
+Likelihood P（X|Y）估计：有两种方法，极大似然估计（Maximum-Likelihood Estimation）和朴素贝叶斯分类器（Naive Bayes Classifier）
+
+（1）MLE：人为猜定likelihood服从的分布形式（比如假设Likelihood服从Gaussian），然后将概率估计简化成参数估计问题。      
+
+（2）Naive Bayes:假设所有属性xi属于x,i = 1 to d，都是条件独立的（attribute conditional independence assumption），这样一来，就不再是将每个x的一整个feature vector作为一个整体来看，而是vector中的每一个独立feature都独立地影响着分类结果。所以，对整个vector的likelihood条件概率估计就变成了对d个xi的d次条件概率估计连乘。   
+？？？？       
+
+
+
+
