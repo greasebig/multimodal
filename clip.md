@@ -1,4 +1,8 @@
 # CLIP
+结构        
+
+
+
 2021
 - 论文中总结的不足
 ![image](https://github.com/greasebig/multimodal/assets/121388156/85fa96b0-b9c8-4e4c-87b2-fa774557f0a7)
