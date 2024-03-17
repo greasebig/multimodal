@@ -1114,9 +1114,146 @@ SD unCLIP是在原来的SD模型的基础上增加了CLIP的image encoder的nosi
 由于finetune了UNet，DreamBooth往往比Textual Inversion要表现的要好，但是DreamBooth的存储成本较高。  
   - DreamBooth和Textual Inversion是最常用的个性化生成方法，但其实除了这两种，还有很多其它的研究工作，比如Adobe提出的Custom Diffusion，相比DreamBooth，它只finetune了UNet的attention模块的KV权重矩阵，同时优化一个新概念的token。
 
-LoRA通过在交叉注意模型中添加一小组额外的「权重」，并仅训练这些额外的权重。  
-Hypernetworks使用一个「辅助网络来预测新的权重」，并利用噪声预测器Noise Predictor中的交叉注意部分插入新的样式。  
-LoRA和Hypernetworks的训练相对较快，因为它们不需要训练整个稳定扩散模型  
+作者提出了使用稀缺词加种类词如“beikkpic dog”的组合文本来微调一组照片和这个文本的绑定。但是仅仅用少量的照片来微调一个有着大量参数的模型很明显会带来极为严重的过拟合。并且还会带来一个语言模型里特别常见的事情--灾难性遗忘。这两个问题的表现一个是绑定词的形态很难变换，就如上篇的Unitune一样。另一个问题是对种类词里面的种类生成也会快速失去多样性和变化性。于是针对这个问题作者针对性地提出了一个叫`自身类别先验保存损失`的损失函数。???????      
+
+如果我们在Prompt中输入一个 [Van Gogh Style]，或许它能很快给你画出梵高风格的一幅画，但我作为一个不知名的人，我也不能奢求Stable Diffusion在训练的时候把我的画也加进去是吧？所以如果我们能自己个性化调整一下这个模型就好了。   
+而如果依照我们的自然想法，那肯定是把整个模型重新训练调整一下，但是这样一来首先我们肯定需要比较大的数据样本，二来对于整个大模型进行重新训练的成本非常高，训练整个Stable-Diffusion-1.4大概要15万GPU小时，如果是这样对于我们来说就变得很不可及了。    
+  这张图片中展示了经过微调后的生成模型与图片指导的DALL-E2，文本指导的Imagen在生成同一个物体上的效果。    
+![alt text](assets_picture/stable_diffusion/image-176.png)    
+准确性;精确性; fidelity       
+我们输入的是三种同一个闹钟的照片，闹钟的一个重要特征是白底，且右边有一个黄色的数字3，然后我们送进各种模型里，再让它们生成图片，结果发现:OpenAI的DALL-E2在物体的保真性和新内容生成两方面的效果都很差，不仅闹钟的形状不对，连生成的三种图片的背景都是在只有在被子上的，这样就不符合我们的要求了。        
+
+![alt text](assets_picture/stable_diffusion/image-177.png)    
+ 相比之下效果还是比较明显的对吧？中间的两组图片是用DreamBooth微调过后的Imagen和Stable Diffusion模型画出来的，而最后一个是用Textual Inversion微调后画出来的图片，Textual Inversion看起来是范围太大，把学习到的花瓶的纹理迁移到整个画面上去了，这其实提示我们：Textual Inversion或许更适合用来做风格迁移方面的微调。    
+
+在这篇文章中，我们提出了一种全新的文本到图像扩散模型 “个性化”方法。给定几个作为主体的图像作为输入，我们便可实现对于预训练的文生图模型的微调，使得其将唯一标识符(Unique Identifier)与特定主体绑定。
+
+  例如我们用sks作为标识符绑定某只特定的猫，通过DreamBooth微调后的模型，则输入prompt: a sks cat running on the lawn后，就会生成一张我们微调训练时使用的猫在草坪上奔跑的图片。      
+
+
+
+1).目标与思路     
+目标：为了能够让模型记住输入的主体，我们需要把物体植入到模型的输出域中。
+思路：采用小样本进行模型微调。    
+
+那么问题来了     
+问题：在既往对于GAN模型微调的研究中，小样本量的微调会产生过拟合和模式坍塌的问题。   
+
+模式坍塌是啥？     
+  模式坍塌是GAN的训练问题，指生成器(G)只能生成真实数据分布中的一部分或一种模式，而忽略了其他的多样性。例如，用GAN生成手写数字图像，有时GAN可能只生成其中一种或几种数字，这就是模式坍塌。      
+一般来说，模式坍塌是由于生成器和判别器(D)之间的对抗关系不平衡造成的。如果D太强，G就会找到一种能骗过D的模式，并且不断重复这种模式；如果D太弱，G就会找到一种最容易生成的模式，且不再探索其他的模式。     
+
+那咋办？     
+  不咋办，DreamBooth是对扩散模型做的微调，而大的扩散模型“看样子”很擅长在不丢失原有的参数以及对小数据样本产生过拟合的情况下，将新的信息整合进入其输出域中。    
+  其实也好理解，我之前提过，大的扩散模型是有相当强的生成多样性的，那么从这个方面上来看，整合新信息对于扩散模型来说应该并不困难。 
+
+DreamBooth特别要求，在构造提示词的时候要尽可能使用词典中存在的不常见/稀有词，而不是常见词或者随机生成的词。    
+DreamBooth的提示词是这样构成的：a [identifier] [class noun]，identifier是一个标识符，一般要求使用比较稀有的、不常见的词作为标识符；而class noun是对于需要标识的物体的“类别描述词”，例如dog, cat等等。    
+
+构造提示词最简单的想法其实就是找个存在的词，比如我要记住一只猫，提示词就让它是a cat，你非说这样不行吧，也不至于，但是这样就会使得扩散模型在这个小样本上过拟合，然后失去通过这个词生成图片的泛化能力，毕竟你要让扩散模型准确输出这只猫，那就肯定要丢掉其他猫的记忆了，这也就是一种过拟合的问题。       
+那既然上面这条路走不通，那我就让你完全认不出来吧，比如文中随机构造了一个"xxy5syt00"作为标识符，这总行了吧？不行哦，这样构造的词可能效果跟上面那种一样差。 为什么？这扩散模型不可能认识啊，其实这是犯了一个主观上的错误，它确实不认识这个词，但是分词器可能也不认识啊，它在接收我们的提示词输入的时候，有可能会根据一定的分词方式，将这种随机标识符分成几个词，而可能其中某个词，扩散模型是认识的，这样一来，就回到的第一种情况中说的过拟合了。      
+
+比如我是一个没什么新意的人，我给这个`标识符`起一个：myspecialcat，有可能经过分词后就变成了my special cat对应的向量，这就麻烦大了，我们到最后可能得到跟a cat一样的效果了。      
+  所以，综上所述，作者在词表中`选择罕见词来作为特殊标记符`，这样避免了预训练模型对特殊标记符有丰富的先验知识。   
+
+Class-specific Prior Preservation Loss    
+(1).新的问题！      
+问题1：Language Drift，对模型进行微调可能产生在Countering Language Drift with Seeded Iterated Learning1以及Countering Language Drift via Visual Grounding2中提到的语言漂移问题。
+
+问题2：过拟合，长时间训练可能导致大模型丢失生成物体的多样性。
+
+Language Drift是什么？      
+#1.Countering Language Drift with Seeded Iterated Learning     
+  Yuchen Lu等在Countering Language Drift with Seeded Iterated Learning中认为:
+
+They slowly lose syntactic and semantic properties of language as they only focus on solving the task.     
+他们逐渐失去语言的句法和语义属性，而仅仅关注解决任务。
+
+  也就是说，模型在完成任务的过程中，仅仅为了完成任务，丢失了我们希望它使用的自然语言属性，这样就出现了语言漂移的问题。  
+
+#2.Countering Language Drift via Visual Grounding
+  Jason Lee等则在Countering Language Drift via Visual Grounding中提出
+
+When a nonlinguistic reward is used in a goal-based task, e.g. some scalar success metric, the communication protocol may easily and radically diverge from natural language.     
+当在基于目标的任务中使用非语言奖励时，例如一些用于度量成功的指标，通信协议可能很容易从根本上偏离自然语言。
+
+这里的通信协议指的是Multi-Agent多智体的通信协议，大概也就是指对于这样一个多智体在语言方面的输入和输出时的协议。
+
+  这一段话其实比上面那个要更好理解一点，也就是说，我们使用的Loss函数总是一个数学表达式，并没有完全使用我们对于某个目标达成的评估方式。
+
+  举个例子：你在教小朋友说话的时候，ta说：“我苹果想吃”，你知道这不对，你纠正ta说：“我想吃苹果”，这就是在依靠语言的方式来评判语言本身是否正确。
+
+  但假设我今天有一个不那么智能的程序，它接收到了我、苹果、想吃三个词之后，认为理解了你说的话，没有去纠正，就认为你是对的了，这就麻烦了，它的评判标准没有完全考虑到语法本身，如果长期保持这样一种方式进行训练，就可能导致小朋友说的话变成一种我们不太能听懂的语言了。       
+
+Language Drift大概也就是这样的问题了，我们在训练的过程当中，可能会因为评估方式的差异，导致这个模型最终在语言方面产生一种完全不属于自然语言范畴的语言，这样虽然它解决了自己的问题，但不符合我们的要求。
+
+ 这里提到Language Drift在我看来可能有两重意思，第一重是论文团队可能希望借此来描述扩散模型的遗忘问题，也就是失去多样性的过程。
+
+  第二重是换个思路，Language Drift本身在语言学中的含义大概是：语言中的词、句或者用法等在时间推演过程中，由于受到社会文化、经济情况等各种原因的影响下，发生了意义变化的现象。
+
+那么提到Language Drift，可能是说，我们在通过DreamBooth微调模型本身，把这个新的物体绑定到某个稀有词这个过程，本身也是属于语言漂移的过程，当然，这是我自己的一点理解，原文中的意思应该更加接近我说的上一种情况。
+
+所以，我们选择PPL       
+  DreamBooth为解决以上问题????????，对Diffusion模型原有的Loss函数中加入了一个可调节的Prior Preservation Loss(PPL)，Loss函数变为以下形式：    
+class-specific prior preservation loss     
+![alt text](assets_picture/stable_diffusion/1710689488698.png)     
+其中x ^ θ 为模型，
+![alt text](assets_picture/stable_diffusion/1710689586024.png)为预训练模型根据包含标识符的提示词生成的向量，z_{t1}服从标准正态分布，c_pr是通过Text-Encoder得到的包含标识符的文本条件向量, λ是用于控制微调部分的权重。          
+??????? z ?????    
+其实这个Loss函数相较于一般的扩散模型只是加了后面这一部分，但是能够很好地保障我们在训练的时候可以保留住扩散模型的先验知识。       
+
+不过从这个新的Loss函数我们其实也很容易看出：DreamBooth真的是对扩散模型整体进行调整，其意图在于将需要模型“记住”的主体嵌入到扩散模型中，从而以最大化地保证原有主体的保真度，而由此也会带来更大的资源（时间、显存等）消耗。      
+
+这里的过拟合实际上是说：我们希望模型记住物体，但不希望只能记住这个物体的几个状态，例如输入的狗狗只有趴着一个姿势，如果这样过拟合，可能到最后输出的图片中狗狗的姿势就全部都是趴着的了，这样的过拟合是我们不希望出现的。      
+
+训练参数：训练集采用3~5张图片，在Imagen下设置学习率为1e-5，Stable Diffusion下设置学习率为5e-6，均训练1000轮      
+结果：Imagen上采取单张TPUv4训练，耗时5分钟；Stable Diffusion上采取单张A100训练，耗时5分钟     
+
+
+ DreamBooth尝试了两个方向的消融实验：Prior Preservation Loss和Class-Prior，第一个就是验证PPL的影响，第二个则是验证类表名称正确与否对于生成图片的影响。    
+
+Prior Preservation Loss Ablation    
+![alt text](assets_picture/stable_diffusion/image-178.png)   
+实验中输入的图片特地采用了同一姿势的狗狗的照片进行训练。
+结果比较明显，在没有PPL的情况下，生成的几张图片虽然保真度较好，但是狗狗的姿势都是趴着的。
+而有PPL的组中就能在保真的情况下生成不同的姿势。
+  而在没有PPL的情况下的DreamBooth微调模型，就出现了我们前面说的，不希望模型出现的过拟合现象——毕竟我们拍照片也不可能总是只有一个姿势对吧？   
+
+![alt text](assets_picture/stable_diffusion/image-179.png)     
+很明显，有PPL的DreamBooth微调后的Imagen模型在PRES，DIV和CLIP-T上表现都要比没有PPL的模型更好，不过这个DINO和CLIP-I是怎么回事？怎么还没有另一组好呢？
+
+  事实上。DINO和CLIP-I指标都是用于衡量生成图像与真实图像之间平均相似性的指标。它反映了生成图像在视觉特征上与真实图像的接近程度，但不一定代表了生成图像的质量或多样性，因此具备PPL的DreamBooth在这些指标上并不占优势，也好理解，毕竟在这里我们希望具备一定的多样性，而DINO和CLIP-I更希望保证它的不变性。 
+
+
+.Class-Prior Ablation  
+Class-Prior在这里更多是针对三种情况进行评估：正确使用类别词汇，不适用类别词汇以及错误使用类别词汇，我们直接看数据：     
+![alt text](assets_picture/stable_diffusion/image-180.png)     
+选择正确的类别标识词对于微调是相当重要的。    
+ 
+![alt text](assets_picture/stable_diffusion/image-181.png)
+DreamBooth在物体保真度和文本提示保真度也是远远领先于Textual Inversion以及没有采取任何措施的模型。      
+
+
+用Diffusers库进行DreamBooth训练    
+组合：Stable Diffusion XL + LoRA + DreamBooth  
+训练参数：学习率1e-5，最大训练次数5000   
+资源消耗：我也用一张A100，大约占用25GB显存，并且需要3个小时才能完成训练   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ### 风格化finetune模型
 采用特定风格的数据集进行finetune，这使得模型“过拟合”在特定的风格上。  
@@ -1127,7 +1264,9 @@ prompthero/openjourney：mdjrny-v4风格图像
 目前finetune SD模型的方法主要有两种：一种是直接finetune了UNet，但是容易过拟合，而且存储成本；另外一种低成本的方法是基于微软的LoRA，LoRA本来是用于finetune语言模型的，但是现在已经可以用来finetune SD模型了，具体可以见博客Using LoRA for Efficient Stable Diffusion Fine-Tuning。  
 
 
-
+LoRA通过在交叉注意模型中添加一小组额外的「权重」，并仅训练这些额外的权重。  
+Hypernetworks使用一个「辅助网络来预测新的权重」，并利用噪声预测器Noise Predictor中的交叉注意部分插入新的样式。  
+LoRA和Hypernetworks的训练相对较快，因为它们不需要训练整个稳定扩散模型  
 
 #### LoRA
 秩分解矩阵     

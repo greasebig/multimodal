@@ -1643,6 +1643,25 @@ YOLOv8是无锚的，减少了箱体预测的数量，加快了非极大值抑�
 ![alt text](assets_picture/detect_track_keypoint/image-91.png)
 
 
+### yolov9
+现有方法忽略了一个事实，即当输入数据经过逐层特征提取和空间变换时，大量信息将会丢失。
+
+因此，YOLOv9 深入研究了数据通过深度网络传输时数据丢失的重要问题，即信息瓶颈和可逆函数。
+
+基于梯度路径规划设计了一种新的轻量级网络架构，即通用高效层聚合网络（Generalized Efficient Layer Aggregation Network，GELAN）     
+![alt text](assets_picture/detect_track_keypoint/image-144.png)         
+具体而言，研究者把 CSPNet、 ELAN 这两种神经网络架构结合起来，从而设计出兼顾轻量级、推理速度和准确性的通用高效层聚合网络（generalized efficient layer aggregation network ，GELAN）。研究者将最初仅使用卷积层堆叠的 ELAN 的功能泛化到可以使用任何计算块的新架构。       
+
+
+
+
+
+研究者提出了可编程梯度信息（programmable gradient information，PGI）的概念，来应对深度网络实现多个目标所需要的各种变化。PGI 可以为目标任务计算目标函数提供完整的输入信息，从而获得可靠的梯度信息来更新网络权值。       
+辅助监督框架     
+
+
+
+
 ### 其他YOLO
 Scaled-YOLOv4      
 在YOLOv4 的一年后， 同一作者在CVPR 2021 上展示了Scaled-YOLOv4 [73] 。与YOLOv4 不同， Scaled YOLOv4是在Pytorch而不是Darknet中开发的。主要的创新之处在于引入了扩大和缩小的技术。        

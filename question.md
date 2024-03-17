@@ -2,22 +2,27 @@
 ！ ae,vae,vqvae的区别？     
 ! 各种iou       
 ！ clip训练过程         
-图图相似度度量方法        
 ! 相同衣服识别         
 ! tokenizer-bpe, embedding           
 ! lora具体怎么加         
 ！ lora训练不稳定是因为什么，怎么解决       
 实习时候lora训练案例以及图像收集？？？        
 ! yolov5正负样本匹配详细规则（???进而自己可以考虑为什么yolov8无锚框）???????           
-比赛改的模型      
+比赛改的模型,nafnet到底是什么？本质是什么      
 ！ 中文文生图只使用1m数据是否太少？      
 vae的分布和diffusion的分布有什么区别      
 ddpm在怎么设计分布？     
-各种采样器如何设计分布？         
+自问：各种采样器如何设计分布？         
 链表类leetcode       
+图图相似度度量方法        
+自问：kl散度为什么能约束分布到标准正态分布，vae为什么要将分布约束到标准正态分布        
+自问：ssim计算需要均值方差，FID的全称是Fréchet Inception Distance，用于衡量两个多元正态分布的距离，数值越小越好。通过特征提取，也需要计算均值方差。kl散度也需要计算分布的均值方差并加以约束，他们的关系是什么?       
+如何固定sd生成图片中人物的id        
 
 
-对backbone,卷积核感受野的改进，压缩加速。对检测头的设计，对loss的设计，对神经网络框架的设计，对优化器的设计，对生成网络的设计，是否太多？           
+
+
+对backbone,卷积核感受野的改进，压缩加速部署。对检测头的设计，对loss的设计，对神经网络框架的设计，对优化器的设计，对生成网络的设计，是否太多？           
 
 
 
@@ -521,7 +526,7 @@ loss的第二部分就是loss-GAN。对于一般的GAN而言，其对抗损失�
 训练第二部分：基于Transformer的自回归式生成，聚焦于生成       
 ![alt text](assets_picture/question/image-17.png)       
 在介绍VQ-VAE时提到过，它是使用PixelCNN来建模Zq的分布，然后采样、解码，从而得到生成图像的。PixelCNN是自回归模型的一种，当然也可以采用其他自回归算法来做这个任务。    
-VQ-GAN使用Transformer（GPT-2）来做code生成器。code的预测过程可以被视作自回归预测：当已有编码 s<i>
+VQ-GAN使用Transformer（GPT-2）来做code生成器。code的预测过程可以被视作自回归预测：当已有编码 s i
  后，Transformer试图去学习预测下一个编码，即预测分布 p(s) = 累乘p(si|si-1)
  。这也就可以表示为最大化log-likelihood分布：
 ![alt text](assets_picture/question/1710519763379.png)       
@@ -681,12 +686,323 @@ IP形象LoRA的应用可以快速生成符合IP形象的设计方案，更灵活
 
 bpe  Byte-Pair Encoding 全称为字节对编码，是一种数据压缩方法，通过迭代地合并最频繁出现的字符或字符序列来实现分词目的。
 
+BPE的优势
+BPE 分词相对于传统的分词方法具有一些优势，这些优势使得它成为自然语言处理中常用的分词形式之一：
+
+1. 子词处理：BPE 分词可以将单词拆分成更小的子词（subwords）。这种子词处理方法能够更好地处理未知词问题，对于罕见的或专有名词等在训练数据中出现较少的词汇有很好的覆盖。英文中会产生很多新词，如果用传统的词分段方法会产生很多未知Token，而BPE不会有这个问题。
+
+2. 可变长度编码：与传统的固定长度编码（如单词级别的编码）相比，BPE 分词可以灵活地处理不同长度的词汇。这使得它适用于多种任务和语言，减少了在处理各种数据时需要重新训练分词器的开销。
+
+3. 上下文相关性：由于 BPE 分词将单词切分为子词，它在保留了含义的同时保持了一定的上下文相关性。这有助于提高模型对于复杂语境和歧义性的处理能力。
+
+4. 数据压缩技术：BPE 最初是作为一种文本压缩算法开发的，因此它可以通过合并高频子词来构建一个更小的词汇表，减少模型的参数量和存储空间。这在处理大规模数据时尤为重要。
+
 WordPiece算法可以看作是BPE的变种。不同点在于，WordPiece基于概率生成新的subword而不是下一最高频字节对。
 
 与 BPE 非常相似。 WordPiece 首先初始化词汇表 the vocabulary 以包含训练数据中存在的每个字符character ，并逐步学习给定数量的合并规则。与 BPE 不同，WordPiece 不会选择最常见的符号对 most frequent symbol pair，而是选择在添加到词汇表后使训练数据的可能性最大化的符号对 symbol pair, that maximizes the likelihood of the training data once added to the vocabulary。
 
 参考前面的例子，最大化训练数据的似然相当于​​找到一个符号对，其概率除以其第一个符号随后其第二个符号的概率是所有符号对symbol pairs中最大的。例如。仅当 "ug" 除以 "u" 、 "g" 的概率大于任何其他符号对时， "u" 和后跟 "g" 才会被合并。直观上，WordPiece 与 BPE 略有不同，它通过合并两个符号来评估其损失，以确保其值得。    
-直观上，WordPiece 与 BPE 略有不同，它通过合并两个符号 by merging two symbols来评估其损失，以确保其值得。
+
+
+
+## 图图相似度度量方法
+
+
+
+
+## 各种采样器如何设计分布？？？？？？？？
+
+    这个去噪的过程，就被称为采样。
+    采样中使用的方法被称为 Sampling method （采样方法或者是采样器）。       
+我觉得是加噪的每一步，叫做样本，不断采集多种样本      
+每一步都会产生一个新的图像样本     
+
+这个采样器算法负责控制去噪的具体操作，而另一个被称为“噪声调度器”（noise scheduler）的算法则负责调控去噪的程度，决定每一步去除多少噪声，以确保整个过程既高效又精准。       
+如果噪声的减少是线性的，那么在图像处理的每一步中，变化程度都将是一样的，这可能会导致图像出现突兀的变化。而使用斜率为负的噪声调度器可以在初期快速去除大量噪声，加速整个过程，然后逐渐减少噪声去除量，以便精细调整图像的小细节。      
+Noise schedule       
+噪音计划表(Noise schedule)控制每个采样步骤的采样水平。整体噪声在第一步时最高，在最后一步逐步降低到零。在每一步中，采样器会生成噪音水平与噪音计划表匹配的图像。增加采样步数，会缩小每一步的降噪幅度，有助于减少采样的截断误差。       
+![alt text](assets_picture/question/image-24.png)       
+![alt text](assets_picture/question/image-25.png)      
+在雕刻的初期，使用较大的力度快速敲掉大块的部分是有益的，这样可以加快雕塑的整体进展。而在雕塑的最后阶段，我们需要极其细致和谨慎地处理，以便精确雕琢出细节，防止雕塑出现破损。       
+
+这个过程中的一个关键要素是收敛性。当采样算法达到一个阶段，继续进行更多步骤不会再改善结果时，我们就认为图像已经达到了收敛状态。     
+有些算法能够迅速收敛，非常适用于快速验证创意和想法。而其他一些算法可能需要更长的时间或更多的步骤才能收敛，但它们通常能够提供更高质量的结果。还有一些算法由于没有设定极限，因此永远不会收敛，这样就为创新和创造性提供了更多空间。        
+
+
+虽然把这些采样器分成不同的类别并不容易，但可以大致归纳为两种主要的方法：
+概率模型，例如 DDPM、DDIM、PLMS 以及 DPM 系列模型。这类生成模型根据模型估计的概率分布来生成结果，就像用相机捕捉风景照片一样，通过捕捉概率中的可能性来形成图像。     
+数值方法，例如 Euler、Heun和 LMS。这些方法在每一步中都致力于解决一个具体的数学问题，逐渐构建出解决方案，就像画家在画布上一步步绘制风景，每一步都在细致地添加新的细节。    
+
+DDPM       
+它采用了明确的概率模型来消除图像中的噪声。    
+
+DDIM (Denoising Diffusion Implicit Model，去噪扩散隐式模型)和PLMS (Pseudo Linear Multi-Step method，伪线性多步法)是初始的1.0版本SD自带的采样器。 
+
+DDIM   
+它采用的是隐式概率模型。       
+从云的表现可以看出，步数越多（100 步以上），效果越好。我们将在下文中看到更好的替代方案。     
+![alt text](assets_picture/question/image-26.png)      
+
+PLMS  
+PLMS（伪线性多步骤，详见相关论文）代表了对 DDIM 的显著改进。有趣的是，PLMS 只需50步处理过程，就能实现比 DDIM 在1000步中所达到的更高图像质量。     
+
+Euler   
+Euler方法可能是最简单直接的采样器之一。这种方法基于普通微分方程（ODE），其特点是在每一步处理中都会以固定的比例逐渐减少噪声。尽管因为其简单性而在精确度上可能有所欠缺，但Euler方法因其处理速度快而被广泛应用。   
+
+Heun   
+Heun方法可以看作是Euler方法的一个更精细的改进版。与Euler仅采用线性近似不同，Heun在每个处理步骤中执行两项任务，因此被称为二阶采样器。它先用线性近似做出预测，然后通过非线性近似来进行校正。这种方法在提高精确度的同时，也确保了更高的图像质量。然而，这种精确度的提升也有一个小代价：处理时间大约是Euler方法的两倍。   
+
+LMS   
+LMS（线性多步骤方法）可以被视为 PLMS 的一个变种，区别在于 LMS 使用的是数值方法，而非 PLMS 中的概率方法（从 PLMS 中去掉概率因素“P”就得到了 LMS）     
+与Euler和Heun不同的是，LMS 方法会利用前几个步骤中的信息来在每一步减少噪声。这样的处理方式虽然提高了图像的精度，但相应地也增加了计算需求，导致处理速度较慢。  
+
+
+DPM 模型家族   
+DPM（扩散概率模型）是一种概率模型，它在 DDPM 的基础上进行了一系列改进，因此得名。   
+DPM2 可以被视为 DPM 的升级版，相当于“版本2”。它在原有模型的基础上做了进一步的改良和优化。   
+另一个基于 DPM 的改进版本是 DPM++。DPM++ 采用了一种混合方法，它结合了确定性和概率方法进行采样以及后续的噪声减少。     
+
+更快的 DPM 模型（DPM-Solver 和 UniPC）     
+扩散概率模型（DPM）顾名思义，基于概率原理。与Euler、Heun或LMS等确定性数值方法不同，DPM在每一步中采用近似方法来处理问题，目的是为了实现尽可能准确的采样。    
+在这些模型中，存在一个关键的组成部分——求解器。求解器在计算和近似采样的概率分布过程中起到了至关重要的作用。正是在这里，一种名为 DPM-Solver 的新技术得以应用，它有效地缩短了采样过程中每一步的时间。     
+也就是说，像 DPM fast（详见相关论文）或 DPM++ 2S/DPM++ 2M（详见相关论文）这样的模型采用了更快速的求解器，从而在采样过程中节约了时间。       
+
+turbo和lcm如何实现加速 ？？？？？？？           
+
+在 DPM++ 2S/DPM++ 2M 的版本中，“2”表示它们是二阶模型。这意味着这些模型结合了预测器和校正器两种机制，以更精确地逼近最终结果。
+
+其中，“S”代表单步骤（Single step）。这种模式在每个步骤中只执行一次计算，因此处理速度更快。
+
+相比之下，“M”代表多步骤（Multi step）。这种方法在每一步进行多次计算，并且会考虑到之前步骤中获取的信息，从而实现更精确、更高质量的收敛，但相应地也需要更长的时间。
+
+在这两种模式下，这种求解器都比标准的 DPM 模型求解器运行得更快。
+
+目前在 Automatic1111 中并没有实现 DPM++ 2S，仅提供了 A、Karras 和 SDE 等变体（我们将在后面进一步介绍这些变体）。
+
+
+至于 UniPC（详见相关论文），它是一个由统一预测器（UniP）和统一校正器（UniC）两部分构成的求解器。这种方法可以被应用到任何 DPM 模型上，其核心目标是在尽可能少的步骤中达到最高的采样质量。还记得 PLMS 如何将原本 DDIM 需要1000步完成的任务缩减到50步吗？在一些情况下，UniPC 甚至能够在仅仅5步或10步内生成高质量的图像。
+
+因此，无论是单步骤还是多步骤的 DPM 模型，UniPC 都能够被集成进去，使其在效率上与 DPM++ 2S 或 DPM++ 2M 相媲美。特别值得一提的是，当步骤数量极少时，UniPC 能提供更优秀的结果。
+
+甚至 UniC 校正器也可以被集成到这些采样算法中，进一步提高采样效率（例如在 DPM++ 2S 中加入 UniC）。
+
+更准确的DPM模型（自适应）   
+DPM adaptive（会自适应改变采样步数因而格外慢，但他在收敛性方面也表现更好）    
+DPM 自适应模型是对标准 DPM 模型的一种扩展，其核心特点是能够根据所面临的问题难度自动调整处理步骤的大小。
+
+具体来说，这就像是算法忽略了预设的步骤数量，而是自由地进行采样，直至实现最优的收敛效果。这种方法能够生成更高质量的图像，但需要的时间会根据具体情况而定，有时可能会相对较长（它是所有采样器中速度最慢的一个）。
+
+初始采样器的变体
+当一个采样器包含字母“A”，它通常表示该采样器属于“祖先”变体类别。这类变体的特点是，在每一个新的处理步骤中，它们会添加之前步骤中产生的随机变量。可以想象成，在每个步骤清除噪声之后，又会有一部分先前的噪声被重新引入。
+
+由于每一步都会增加新的随机噪声，带有这一特性的采样器永远不会达到收敛状态。如果总有新噪声需要处理，就总能继续进行下一步。
+
+这使得这些采样器具有更高的创造性。增加额外的处理步骤并不一定会提高图像质量，而是可能产生另一种类似的结果。
+
+    如果你在尝试复现使用Stable Diffusion生成的图像时失败了，即使你使用了相同的种子和参数，那可能是因为你使用了一个祖先采样器。这是正常现象！因为每一步重新加入的噪声都是随机的，不同的实现或采样器版本几乎肯定会产生不同的结果。
+Euler A、DPM2 A 或 DPM++ 2S A 等都是祖先采样器的例子
+
+Karras 变体     
+含有“Karras”（或简写为“K”）字样的变体（详见相关论文），是指由 Nvidia 工程师 Tero Karras 所领导的一系列工作。这项工作为某些采样器带来了重要的改进，旨在提高输出质量和采样过程中计算效率。
+
+采用了这些改进的采样器包括：LMS Karras、DPM2 Karras、DPM2 A Karras、DPM++ 2S A Karras、DPM++ 2M Karras 和 DPM++ SDE Karras 等。这些采样器利用了 Karras 的创新技术，以提升其整体性能和效率。
+
+像DPM++ 2M一样，这个采样器在30到50步之间提供非常好的结果，但是Karras版本具有在较少的步骤中提供更好结果的优势，如下面的例子所示：
+
+Karras系列
+
+名字中带有karras的sampler是采用了karras论文中的噪声时间表（noise schedule）。它在前期噪声强度更高，而在末期噪声强度更低，如下图所示。这一定程度上有利于提高出图质量。 
+
+![alt text](assets_picture/question/image-28.png)     
+
+
+
+Stochastic 变体
+SDE（随机微分方程，详见相关论文）变体采用了随机微分方程。简而言之，这类微分方程的使用使得噪声的建模方式更为复杂和精确，它能够利用之前步骤中的信息。原则上，这种方法能够生成更高质量的图像，但相应的代价是处理速度较慢。由于采用了随机方法，SDE 变体永远不会达到收敛状态。因此，增加处理步骤的数量并不会提高图像质量，而是会产生更多样化的结果，这一点类似于祖先采样器。
+
+截至本文发表时，我们已经有了几种 SDE 变体，包括 DPM++ SDE、DPM++ 2M SDE、DPM++ SDE Karras 和 DPM++ 2M SDE Karras。
+
+随机采样器虽然速度较慢，但即使在10个步骤下也能提供令人难以置信的结果。它们的结果也更加多样化和富有创意。由于它们永远不会收敛，因此是祖先采样器的一种替代方法。
+
+![alt text](assets_picture/question/image-27.png)    
+
+
+
+Ancestral系列
+
+有些sampler的名字里会带一个a，这就代表他们是Ancestral sampler祖先采样器，祖先采样器会在每一步之间向图片添加随机的噪声，因而采样结果具有一定的随机性，难以稳定复现结果。
+
+有些采样器名字里没有带a，但是也会添加随机噪声（例如DDIM）。 
+
+![alt text](assets_picture/question/image-29.png)               
+以Euler为标杆，基本而言可以分为三组：    
+与Euler类似的一阶采样器（时间与Euler相同）   
+需要对去噪U-Net进行两次评估的二阶采样器（时间是Euler的两倍）    
+
+
+
+
+
+
+
+
+
+
+
+以下是我选择采样器的建议：     
+如果想快速生成质量不错的图片，建议选择 DPM++ 2M Karras (20 -30步) 、UNIPC （15-25步）     
+如果想要高质量的图，不关心重现性，建议选择 DPM++ SDE Karras （10-15步 较慢) ，DDIM(10-15步 较快)      
+
+如果只是想得到一些较为简单的结果，选用欧拉（Eular)或者Heun，并可适当减少Heun的步骤数以减少时间
+对于侧重于速度、融合、新颖且质量不错的结果，建议选择：
+DPM++ 2M Karras， Step Range：20-30
+UniPc, Step Range: 20-30
+3. 期望得到高质量的图像，且不关心图像是否收敛：
+
+DPM ++ SDE Karras， Step Range：8-12
+DDIM， Step Range：10-15
+4. 如果期望得到稳定、可重现的图像，避免采用任何祖先采样器
+
+
+### prompt     
+a dog, a cat：越靠前的提示词，权重越高
+
+加权重方法——小括号()：(a dog), a cat：一个小括号相当于权重乘1.1倍，两个小括号相当于乘1.1倍后再乘1.1倍，小括号越多权重越高      
+去权重方法——中括号[]：[a dog], a cat：相当于除1.1倍，多个中括号以此类推      
+调整权重更方便的写法：(prompt1:数字),(prompt2:数字)——(a dog:0.5),(a cat:1.5)——0.5权重狗，1.5权重猫       
+ 
+prompt提示词六要素：
+推荐两个提示词网站：
+元素法典
+Danbooru 标签超市
+
+人物，画风，场景，环境，画质，视角
+1、人物：
+
+性别：1 girl, 2 boys, loli, cat girl
+服饰：long sleeves, gloves coat, bangle, armband
+发型：long hair, bangs, black hair,
+五官：cat ears, small eyes, big mouth, blue eyes
+表情：smile, open mouth, tears, blush
+动作：standing, lying, head tilt, tying hair
+2、画风
+
+插画风：illustration, painting, paintbrush
+二次元：anime, comic, game CG,
+写实系：photorealistic, realistic, photograph
+复古风：close-up,upper body, pov, retro artstyle
+手绘风：traditional media
+赛博朋克：cyberpunk,
+3、场景
+
+室内室外：indoor outdoor
+大场景：forest city, street, field, garden, village
+小细节：tree, bush, flower, tower, fences
+4、环境
+
+白天黑夜：day night
+时段：morning， sunset
+光线：sunlight， bright， dark
+天空：blue sky， starry sky， shooting star， full moon
+5、画质
+
+正向高画质：highres, absurdres, official art, best quality, 8k,masterpiece, game cg, original
+负向低品质：lowres, parody, scan, parody, bad anatomy, bad hands, fewer digits, extra digit, missing arms, watermark, signature, text,
+6、视角
+
+距离：close-up， distant
+人物比例：full body， upper body
+观察角度：from above， from below， view of back， form side
+镜头类型：wide shot， Sony A7 3， fish eye
+
+
+## ddpm在怎么设计分布？
+对于这个前向过程，宋飏博士在其获得了2021-ICLR-Outstanding-Paper-Award的论文里证明了DDPM里的离散加噪只是连续时间里的随机过程的离散化形式。     
+而对于前向的扩散过程和后向的去噪过程都有相对应的随机微分方程和常微分方程表示。并且DDPM的优化目标（预测每一步所添加的噪声）实际上可以理解为学习一个当前输入对目标数据分布的最优梯度方向。      
+
+在DDIM里宋博士证明了我们可以不止可以在后向去噪时使用确定性的常微分方程来得到确定性的采样结果，我们在前向扩散时也可以通过构造后向的常微分方程的逆过程来得到前向的最终加噪结果（这句话实际是在说如果我们有一条确定性的路径，那么前向和后向过程无非是正着走一遍和反着走一遍而已。）。这个结论使得扩散生成变得高度可控，不用担心对一张图的前后向得到完全不一样的图片使得一系列的调控成为可能。
+
+
+
+
+## 如何固定sd生成图片中人物的id
+
+
+在InstantID这样的技术之前，结合 Textual Inversion、DreamBooth 和 LoRA 等方法，个性化图像合成取得了重大进展。过去的方案，通常需要结合微调，需要较多的样本图片，较高的显存要求，以及较长的训练时间
+
+
+
+
+### InstantID
+仅用一张照片，帮你生成整套“写真集”的InstantID使用教程来啦～！无需使用LoRA，也能准确地保留人物特征。      
+需要使用Controlnet1.1.4+以上版本，上传引导「控制人物的相似度」的图片1张，控制强度建议在0.5-1.0之间，预处理器选择instant_id_face_embedding，模型选择ip_adapter_instant_id_sdxl[eb2d3ec0]；第2个Controlnet控制单元主要控制「人物动作及面部方向」，预处理器选择instant_id_face_keypoints，模型选择control_instant_id_sdxl[c5c25a50]。        
+![alt text](assets_picture/question/image-30.png)
+
+
+之前听雨介绍了 SD 中的一款换脸插件 ReActor，虽然好使，但是安装还是有些许麻烦的。
+
+今天给小伙伴们介绍一款新型的换脸插件：Instant ID，主要是使用 ControlNet 和 IP-Adapter 的组合来控制扩散过程中的面部特征。    
+InstantID 是由InstantX项目组推出的一种SOTA的tuning-free方法，只需单个图像即可实现 ID 保留生成，并支持各种下游任务。     
+![alt text](assets_picture/question/image-31.png)  
+
+
+在InstantID这样的技术之前，结合 Textual Inversion、DreamBooth 和 LoRA 等方法，个性化图像合成取得了重大进展。过去的方案，通常需要结合微调，需要较多的样本图片，较高的显存要求，以及较长的训练时间，导致了成本较高。
+
+为了解决如上的这些要求，InstantID的即插即用模块仅使用单个面部图像就能熟练地处理各种风格的图像个性化，同时确保高保真度。InstantID设计了一种新颖的 IdentityNet，通过强加语义和弱空间条件，将面部和地标(landmark, 位置)图像与文本提示相结合来引导图像生成。InstantID与流行的预训练文本到图像扩散模型（如 SD1.5 和 SDXL）无缝集成，作为一个适应性强的插件。
+
+![alt text](assets_picture/question/image-32.png)  
+
+
+InstantID 的整体流程由三部分组成，以保持高面部保真度。     
+首先，InstantID采用Face Encoder而不是 CLIP 来提取语义人脸特征，并使用可训练的投影层将它们投影到文本特征空间。 我们将投影的特征作为Face Embedding。     
+然后，引入具有解耦Cross Attention的轻量级自适应模块来支持图像作为提示。      
+最后，InstantID提出 IdentityNet 通过额外的弱空间控制对参考面部图像中的复杂特征进行编码。      
+
+在 IdentityNet 中，生成过程完全由Face embedding引导，无需任何文本信息。 仅更新新添加的模块，而预先训练的文本到图像模型保持冻结以确保灵活性。无需额外的训练，用户可以生成任何风格的高保真ID保留图像。      
+？？？？？？？      
+有什么用，为什么有用？？？？？       
+
+InstantID的优势有如下三个方面：
+
+1）可插拔性和兼容性：InstantID专注于训练轻量级适配器而不是UNet的完整参数，使InstantID的模块可插拔并与预训练模型兼容；
+
+2）tuning-free：InstantID只需要一次前向传播进行推理，无需微调。 这一特性使得 InstantID 对于实际应用来说非常经济实用；
+
+3）卓越的性能：只需一张参考图像，InstantID 即可实现最先进的结果，展现出高保真度和灵活性。
+
+InstantID还支持多重参考，允许使用多张参考图像来生成一个新图像，从而增强生成图像的丰富性和多样性。
+
+未来可见InstantID在电商广告，AI头像，虚拟试衣等场景上有广泛的应用潜力。      
+
+
+![alt text](assets_picture/question/image-33.png)    
+主要有三大重点模块：
+
+1、ID Embedding：InstantID采用Face Encoder来提取人脸特征的语义信息，而不是传统的CLIP，对应上图模块1。由于CLIP是用弱对齐的数据进行训练，它的编码特征主要捕获广泛的、模糊的语义信息，如组合、风格和颜色，缺少了人物面部表情特征的强语义信息和高保真度，所以作者采用预先训练好的人脸模型来提取人物的Face Embedding比CLIP更精准，更丰富。
+
+2、Image Adapter：引入具有解耦交叉注意力的轻量级自适应模块，结合了文本提示信息和图像提示信息，这里的思路与IPadapter如出一辙，对应上图模块2，具体原理和代码实现可参考我另一篇文章【AIGC图像系列小结 01】IP-Adapter 原理和实践。
+
+3、IdentityNet：作者认为通过Image Adapter方法集成了图像和文本提示只是在粗粒度上的改进，对于人物ID图像生成是不够的，所以添加了一个额外的模块IdentityNet，利用弱空间信息（仅仅使用了人脸的5个面部关键点，两个眼睛，两个鼻子，两个嘴）和强语义信息（ID Embedding模块提取的人物详细的面部表情特征）来控制和引导图片的生成，对应上图模块3。         
+
+
+
+
+
+
+
+
+
+
+### IP-Adapter
+![alt text](assets_picture/question/image-34.png)    
+腾讯前段时间出了一个垫图神器IP-Adapter，用于文本到图像扩散模型的文本兼容图像提示适配器，其作用通俗点解释就是让生成的图像更贴近于输入。后续又推出了faceid,faceid-plus,faceid-plusv2模型（注：faceid模型的Image Encoder由CLIP变成了InsightFace），依靠controlnet结合对应的LoRA来生成面部ID一致的图像。本文我主要对其原理进行了简单梳理，同时在代码实践中对原理进行一一对照从而加深理解。       
+
+这里就是加了图像embedding的交叉注意力层       
+不就是lora????      
+unet交叉注意力层加入降秩矩阵，训练
+
+
+
 
 
 

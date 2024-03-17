@@ -471,13 +471,14 @@ logistic回归的因变量可以是二分类的，也可以是多分类的，但
 
 ## PNSR（Peak Signal-to-Noise Ratio峰值信噪比）
 ![Alt text](assets_picture/conv/image-13.png)    
-![Alt text](assets_picture/conv/image-24.png)
+![Alt text](assets_picture/conv/image-24.png)      
 MAX表示像素值的最大可能取值（例如，对于8位图像，MAX为255），MSE是原始图像与重建图像之间的均方误差。   
 是一种常用于衡量图像或视频质量的指标。它用于比较原始图像与经过处理或压缩后的图像之间的差异   
 PSNR通过计算原始图像与重建图像之间的均方误差（Mean Squared Error，MSE）来量化它们之间的差异。    
-PSNR的值越高，表示图像的质量与原始图像的相似度越高。常见的PSNR范围通常在20到50之间，数值越高表示图像质量越好。然而，PSNR作为一种图像质量评估指标也有其局限性。
+PSNR的`值越高，表示图像的质量与原始图像的相似度越高`。常见的`PSNR范围通常在20到50之间`，数值越高表示图像质量越好。然而，PSNR作为一种图像质量评估指标也有其局限性。      
+和直接用mse,不用log有什么区别？？？？         
 
-它主要关注均方误差，忽略了人眼对于不同频率成分的敏感度差异以及感知失真的影响。因此，在某些情况下，PSNR可能不能准确地反映人类感知到的图像质量差异。   
+它`主要关注均方误差`，忽略了人眼对于不同频率成分的敏感度差异以及感知失真的影响。因此，在某些情况下，PSNR可能不能准确地反映人类感知到的图像质量差异。   
 了PSNR，还有其他更全面和准确的图像质量评估指标，例如结构相似性指标（Structural Similarity Index，SSIM）、感知质量评估指标（Perceptual Quality Assessment，如VIF、MSSSIM）等，这些指标综合考虑了人眼感知和图像结构信息，能够提供更全面的图像质量评估。   
 
 意义：  
@@ -489,7 +490,8 @@ PSNR低于 10dB，人类很难用肉眼去判断两个图像是否为相同，�
 
 
 ## MSSSIM（Multi-Scale Structural Similarity Index）
-![Alt text](assets_picture/conv/image-14.png)   
+综合考虑了人眼感知和图像结构信息       
+![Alt text](assets_picture/conv/image-14.png)    
 是一种用于评估图像质量的指标，它是结构相似性指数（SSIM）在多个尺度上的扩展。   
 SSIM是一种衡量两幅图像相似性的指标，它考虑了图像的**亮度、对比度和结构**等方面。而MS-SSIM在SSIM的基础上引入了多个尺度，以更好地捕捉图像的细节信息。    
 具体而言，MS-SSIM的计算过程如下：
@@ -500,7 +502,7 @@ SSIM是一种衡量两幅图像相似性的指标，它考虑了图像的**亮�
 
 对每个尺度的SSIM指数进行加权平均，得到最终的MS-SSIM值。   
 
-MS-SSIM的值范围在0到1之间，数值越接近1表示重建图像与原始图像的相似度越高，图像质量越好。
+MS-SSIM的`值范围在0到1`之间，`数值越接近1表示重建图像与原始图像的相似度越高`，图像质量越好。
 
 相比于PSNR，MS-SSIM考虑了图像的结构信息，能够更好地反映人眼对图像质量的感知。它在评估图像质量方面具有更高的准确性和敏感性。
 
@@ -532,7 +534,10 @@ def ms_ssim(img1, img2):
     
     # 整体MS-SSIM计算
     overall_mssim = np.prod(mcs[:-1] ** weights[:-1]) * (mssim[-1] ** weights[-1])
-    
+    #"np.prod"是一个函数，用于计算给定数组中所有元素的乘积 
+    #arr = np.array([1, 2, 3, 4, 5])
+    #product = np.prod(arr)
+    #print(product)  # 输出结果为120，即1*2*3*4*5
     return overall_mssim
  
 def ssim(img1, img2, k1=0.01, k2=0.03, win_size=11, L=255):
@@ -541,6 +546,9 @@ def ssim(img1, img2, k1=0.01, k2=0.03, win_size=11, L=255):
     
     # 计算均值和方差
     mu1 = cv2.GaussianBlur(img1, (win_size, win_size), 1.5)
+    #对图像进行高斯模糊处理。具体来说，它将图像img1应用高斯模糊，并指定了模糊核的大小(win_size, win_size)和高斯核的标准差(sigma)。这个函数会返回一个模糊后的图像
+    #？？？
+    #(11, 11)：指定了高斯核的大小为11x11，这个值决定了模糊程度。1.5：是高斯核的标准差，用来控制模糊程度。标准差越大，模糊程度越高。
     mu2 = cv2.GaussianBlur(img2, (win_size, win_size), 1.5)
     
     mu1_sq = mu1 ** 2
@@ -570,6 +578,9 @@ print("MS-SSIM score:", ms_ssim_score)
 ![Alt text](assets_picture/conv/image-15.png)   
 
 ## LPIPS (Learned Perceptual Image Patch Similarity）
+具体怎么计算？？？         
+计算特征图的mse??????        
+
 可学习感知图像块相似度(Learned Perceptual Image Patch Similarity, LPIPS)也称为“感知损失”(perceptual loss)   
 是一种基于学习的感知图像补丁相似性指标，用于评估图像的感知质量。   
 
