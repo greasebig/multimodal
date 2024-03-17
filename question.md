@@ -4,7 +4,7 @@
 ！ clip训练过程         
 图图相似度度量方法        
 ! 相同衣服识别         
-tokenizer-bpe, embedding           
+! tokenizer-bpe, embedding           
 ! lora具体怎么加         
 ！ lora训练不稳定是因为什么，怎么解决       
 实习时候lora训练案例以及图像收集？？？        
@@ -673,9 +673,22 @@ IP形象LoRA的应用可以快速生成符合IP形象的设计方案，更灵活
 训练室内或建筑风格的LoRA，可以结合controlnet一起使用，快速根据客户实际户型结构出效果图，大大提升了效率。        
 
 
+## tokenizer-bpe, embedding  
+用于将词汇分割成更小的单元，从而能够更灵活地处理未登录词（out-of-vocabulary words）和稀有词汇   
+（2）BPE与Wordpiece都是首先初始化一个小词表，再根据一定准则将不同的子词合并。词表由小变大    
+（3）BPE与Wordpiece的最大区别在于，如何选择两个子词进行合并：`BPE选择频数最高的相邻子词合并，而WordPiece选择能够提升语言模型概率最大的相邻子词加入词表。`  
+（4）其实还有一个Subword算法，ULM（Unigram Language Model），与前两种方法不同的是，该方法先初始化一个大词表，再根据评估准则不断丢弃词表，直到满足限定条件为止，词表由大变小。  
+
+bpe  Byte-Pair Encoding 全称为字节对编码，是一种数据压缩方法，通过迭代地合并最频繁出现的字符或字符序列来实现分词目的。
+
+WordPiece算法可以看作是BPE的变种。不同点在于，WordPiece基于概率生成新的subword而不是下一最高频字节对。
+
+与 BPE 非常相似。 WordPiece 首先初始化词汇表 the vocabulary 以包含训练数据中存在的每个字符character ，并逐步学习给定数量的合并规则。与 BPE 不同，WordPiece 不会选择最常见的符号对 most frequent symbol pair，而是选择在添加到词汇表后使训练数据的可能性最大化的符号对 symbol pair, that maximizes the likelihood of the training data once added to the vocabulary。
+
+参考前面的例子，最大化训练数据的似然相当于​​找到一个符号对，其概率除以其第一个符号随后其第二个符号的概率是所有符号对symbol pairs中最大的。例如。仅当 "ug" 除以 "u" 、 "g" 的概率大于任何其他符号对时， "u" 和后跟 "g" 才会被合并。直观上，WordPiece 与 BPE 略有不同，它通过合并两个符号来评估其损失，以确保其值得。    
+直观上，WordPiece 与 BPE 略有不同，它通过合并两个符号 by merging two symbols来评估其损失，以确保其值得。
 
 
 
 
-
-
+## 结尾

@@ -1081,7 +1081,7 @@ BPE最初是用于文本压缩的算法，当前是最常见tokenizer的编码�
 （3）BPE与Wordpiece的最大区别在于，如何选择两个子词进行合并：BPE选择频数最高的相邻子词合并，而WordPiece选择能够提升语言模型概率最大的相邻子词加入词表。  
 （4）其实还有一个Subword算法，ULM（Unigram Language Model），与前两种方法不同的是，该方法先初始化一个大词表，再根据评估准则不断丢弃词表，直到满足限定条件为止，词表由大变小。  
 
-##### BPE 
+##### BPE Byte-Pair Encoding
 全称为字节对编码，是一种数据压缩方法，通过迭代地合并最频繁出现的字符或字符序列来实现分词目的。
 
 算法步骤：
@@ -1137,7 +1137,7 @@ WordPiece算法可以看作是BPE的变种。不同点在于，WordPiece基于�
 与 BPE 非常相似。 WordPiece 首先初始化词汇表the vocabulary以包含训练数据中存在的每个字符character ，并逐步学习给定数量的合并规则。与 BPE 不同，WordPiece 不会选择最常见的符号对most frequent symbol pair，而是选择在添加到词汇表后使训练数据的可能性最大化的符号对symbol pair, that maximizes the likelihood of the training data once added to the vocabulary。
 
 参考前面的例子，最大化训练数据的似然相当于​​找到一个符号对，其概率除以其第一个符号随后其第二个符号的概率是所有符号对symbol pairs中最大的。例如。仅当 "ug" 除以 "u" 、 "g" 的概率大于任何其他符号对时， "u" 和后跟 "g" 才会被合并。直观上，WordPiece 与 BPE 略有不同，它通过合并两个符号来评估其损失，以确保其值得。    
-直观上，WordPiece 与 BPE 略有不同，它通过合并两个符号by merging two symbols来评估其损失，以确保其值得。
+直观上，WordPiece 与 BPE 略有不同，它通过合并两个符号by merging two symbols来评估其损失，以确保其值得。？？？？？？？
 
 算法步骤
 
@@ -1147,7 +1147,8 @@ WordPiece算法可以看作是BPE的变种。不同点在于，WordPiece基于�
 
 3. 将单词拆分成字符序列
 
-4. 基于第3步数据训练语言模型
+4. 基于第3步数据训练语言模型？？？？？？？？    
+那岂不是要训练很多次？？？？？具体要迭代多少次？？？？？       
 
 5. 从所有可能的subword单元中选择加入语言模型后能最大程度地增加训练数据概率的单元作为新的单元
 
