@@ -573,7 +573,8 @@ DDIM的采样过程
 ###### ddpm去噪
 ![Alt text](assets_picture/stable_diffusion/image-94.png)   
 贝叶斯计算，去噪是估计的后验分布中，方差是固定值（仅限于ddpm），只有均值需要求解，  
-![Alt text](assets_picture/stable_diffusion/image-95.png)   
+![Alt text](assets_picture/stable_diffusion/image-95.png)     
+![alt text](assets_picture/stable_diffusion/image-191.png)      
 ![Alt text](assets_picture/stable_diffusion/image-96.png)
 
 ###### eular原理
