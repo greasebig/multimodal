@@ -455,8 +455,8 @@ PNDMScheduler 使用伪数值方法来处理扩散模型，PNDMScheduler 是一�
 每步噪声减小的程度更小。这有助于减少采样的截断误差。  
 　　通俗来说,采样步数越多,每次减少的噪声就越少。这样可以让图像的变化更平滑自然,避免在减噪过程中出现明显的错误。  
 ![Alt text](assets_picture/stable_diffusion/image-55.png)  
-![Alt text](assets_picture/stable_diffusion/image-56.png) 
-
+![Alt text](assets_picture/stable_diffusion/image-56.png)     
+在雕刻的初期，使用较大的力度快速敲掉大块的部分是有益的，这样可以加快雕塑的整体进展。而在雕塑的最后阶段，我们需要极其细致和谨慎地处理，以便精确雕琢出细节，防止雕塑出现破损。   
 #### 采样器概述
 ![Alt text](assets_picture/stable_diffusion/image-57.png)    
 常微分方程（ODE）      
@@ -520,7 +520,7 @@ M：代表multistep。这意味着该采样器在每次迭代中会执行多步�
 由于每次迭代需要进行多次更新，采样速度较慢，但可能只需要较少的采样步数就能达到所需的图像质量。更适合对图像质量有较高要求的应用，或者那些可以接受稍长的计算时间以获得更好结果的应用。
 
 ##### Karras噪声调度计划
-带“Karras”标签的采样器采用了Karras论文推荐的噪声调度方案,也就是在采样结束阶段将噪声减小步长设置得更小。这可以让图像质量得到提升。  
+带“Karras”标签的采样器采用了Karras论文推荐的噪声调度方案,也就是在`采样结束阶段将噪声减小步长设置得更小`。这可以让图像质量得到提升。  
 ![Alt text](assets_picture/stable_diffusion/image-60.png)  
 
 ##### DDIM和PLMS
@@ -1093,6 +1093,8 @@ Stability AI在发布SD 2.0的同时，还发布了另外3个模型：stable-dif
 除此之外，Stability AI公司还开源了两个加强版的autoencoder：ft-EMA和ft-MSE（前者使用L1 loss后者使用MSE loss），前面已经说过，它们是在LAION数据集继续finetune decoder来增强重建效果。
 
 ## SD 2.1
+
+
 SD 2.0在训练过程中采用NSFW检测器过滤掉了可能包含色情的图像（punsafe=0.1），但是也同时过滤了很多人像图片，这导致SD 2.0在人像生成上效果可能较差，所以SD 2.1是在SD 2.0的基础上放开了限制（punsafe=0.98）继续finetune，所以**增强了人像的生成效果**。
 ## SD unclip
 stable-diffusion-reimagine，它可以实现单个图像的变换，即image variations，目前该模型已经在在huggingface上开源：stable-diffusion-2-1-unclip。  
@@ -1103,6 +1105,10 @@ SD unCLIP是在原来的SD模型的基础上增加了CLIP的image encoder的nosi
 
 这里SD unCLIP有两个版本：sd21-unclip-l和sd21-unclip-h，两者分别是采用OpenAI CLIP-L和OpenCLIP-H模型的image embeddings作为condition。  
 如果要实现文生图，还需要像DALLE2那样训练一个prior模型，它可以实现基于文本来预测对应的image embeddings，我们将prior模型和SD unCLIP接在一起就可以实现文生图了。KakaoBrain这个公司已经开源了一个DALLE2的复现版本：Karlo，它是基于OpenAI CLIP-L来实现的，你可以基于这个模型中prior模块加上sd21-unclip-l来实现文本到图像的生成，目前这个已经集成了在StableUnCLIPPipeline中
+
+
+
+
 ## SD的其它特色应用
 ### 个性化生成
 个性化生成是指的生成特定的角色或者风格，比如给定自己几张肖像来利用SD来生成个性化头像。在个性化生成方面，比较重要的两个工作是英伟达的Textual Inversion和谷歌的DreamBooth。 
@@ -1245,6 +1251,90 @@ DreamBooth在物体保真度和文本提示保真度也是远远领先于Textual
 
 
 
+最后笔者将介绍两篇无需微调的工作。他们同样也可以在Imagen/SD上互相迁移。他们有一个特点就是无需一个显式的Mask，可以只用文本来生成掩码来找到文本对应的修改位置，再辅以文本调控生成的手段。      
+DiffEdit: Diffusion-based Semantic Image Editing with Mask Guidance      
+其中Diff不仅仅指扩散Diffusion还可以指Difference差异。而事实上，这篇论文生成掩码的方式靠的就是两次扩散的差异。       
+
+
+Prompt-to-Prompt Image Editing with Cross-Attention Control       
+而作者的洞见则在于：我们输入的文本和像素之间存在着一个空间对应的关系。通过调控注意力和像素间的映射。我们能够对图像的不同区域实施准确的引导。      
+但在笔者自身实践文图模型的受控引导生成时，发现遇到的不少问题其实已经有先行者遇到过了。他们的思路和洞见给了笔者很多启发。相信读者在阅读的时候也发现，这其中的论文有不少都吸取了前序论文的思路和做法。但论文读得再多，也终归是要动手实践的。      
+有了以上洞见据此进行图像引导生成就很直观了，作者将其分为三个主要场景：单词替换（比如在上图里将熊换成猫则将猫这个token对应的map换成熊的map），单词增添（在原有的map上增加新的单词的map），注意力重加权（如果想放大或减弱某个词对原图的引导效果则对其map乘上新的权重值，如降低下雪的效果开花的程度等）。         
+
+
+
+##### 自身类别先验保存损失 class-specific prior preservation loss
+只是在训练过程中，是需要单独提供一个class类别的定义，比如这几张狗狗的图片来训练，就需要提供一个类别”dog“，这样模型就会在原有 SD 基础大模型中仅仅从“dog”这一细分领域去训练了。另外一个就是需要提供一个独特的名称，比如 kkoxxbb 这种明显不是某个有意义的单词的新名字，确保这个新名字在原有 SD 大模型中不被识别为某种自然语言的含义。这样 Dreambooth 训练就变成一个在原有 SD 基础模型之中进行局部参数的更新来完成训练的过程。      
+
+从效果上来说，Dreambooth 是将一个以前人类史上没有见过的崭新的概念添加到 SD 基础模型中的最适合的训练方案。当然，如果你非要把你家的狗狗的照片当做“人类史上没有”的崭新形象进行 Dreambooth 训练也没关系，只不过是有点大材小用，因为其实这样的训练，单靠 LoRA 训练就可以了。        
+
+
+
+
+举个例子，假设我们要训练一个“施瓦辛格”的模型。我们有3张他的照片图片，设置每一张的 captions（图片描述文本）如下：
+
+Schwarzenegger, man, sunglasses, black coat, muscular, scene from Terminator      
+Schwarzenegger, man, suit, red tie, smiling       
+chwarzenegger, muscular, smiling, man, flexing, black and white       
+class 此时的设置就应该是“man”。这个 class 的作用就是首先框定住要训练的这个“Schwarzenegger”概念是属于“man”这个类别的，这样在训练时就会使 SD 基础大模型聚焦于“man”这个大概念范畴。同时，更重要的作用是，避免“Schwarzenegger”这个新的概念把所有“man”的概念带歪！
+
+再具体来说就是，这三个训练图片的 captions（图片描述文本）中都有“man”这个提示词，那么在模型训练时，势必会影响模型与“man”的关联度，以至于在模型训练好后在具体使用模型时，当你输入“man”这个提示词时，都会产生“施瓦辛格”形象的图片。也就是说，由于在训练阶段提示词中都有“man”，导致 SD 基础大模型所有有关man的内容都聚焦到了“Schwarzenegger”这个新的概念上。
+
+这就是“既要又要”的尴尬。。。既要框定范围为“man”，又不能让“Schwarzenegger”将所有“man”概念劫持。所以就引入了一个叫 class 的东西。     
+
+此时 class 在设置为“man”后，系统在调用“Schwarzenegger”这三个训练集图片时，同时会生成3张正常的“man”的图片，以做平衡。具体是这样进行的，首先你设置参数如下：
+
+Instance Token = Schwarzenegger
+Class Token = man
+Instance Prompt = [filewords]
+Class Prompt = [filewords]
+# Class Images = 1
+这些参数的意思是，
+
+instance 代表这三个“Schwarzenegger”的训练集图片，Instance Token 就是告诉系统，在captions（图片描述文本）中，凡是有“Schwarzenegger”这个词时，就被识别为训练集图片的独有概念单词；
+Class token，就是说此次训练的内容是被框定在“man”这个 class 类目中的，系统会为每一个 Instance 图片生成若干匹配的一般意义上的“man”的图像，以避免“Schwarzenegger”这个新概念把所有“man”概念都劫持走。具体这个“若干”是多少呢？下面 # Class Images 处进行设置，本例子为 1；
+Instance Prompt 和 Class Prompt 默认。
+
+
+
+
+作者希望将输入图片中的物体与一个特殊标识符绑定在一起，即用这个特殊标记符来表示输入图片中的物体。因此作者为微调模型设计了一种prompt格式：a [identifier] [class noun]，即将所有输入图片的promt都设置成这种形式，其中identifier是一个与输入图片中物体相关联的特殊标记符，class noun是对物体的类别描述。这里之所以在prompt中加入`类别`，是因为作者想`利用预训练模型中关于该类别物品的先验知识，并将先验知识与特殊标记符相关信息进行融合，这样就可以在不同场景下生成不同姿势的目标物体`          
+
+作者提出的方法，大致如下图所示，即仅仅通过3到5张图片去微调文生图模型，使得模型能将输入图片中特定的物品和prompt中的特殊标记符关联起来。
+
+![alt text](assets_picture/stable_diffusion/image-189.png)     
+
+![alt text](assets_picture/stable_diffusion/image-190.png)         
+基于SD生成同class图像加入batch里面训练      
+
+用什么单词来代替这个特殊标记符呢？
+
+（1）最简单的方法就是随机选择一个已经存在的单词，通过这种方式构建特殊标记符会造成一些问题，随着训练的进行，模型会忘记这个单词的本来含义，并将输入图片中的物品的含义与该单词绑定。
+
+（2）用英文字母构造一个特殊标记符，如xxy5syt00，当分词器可能会将这个词分开，变成多个子词，而扩散模型对这些子词有非常丰富的先验。
+
+（3）最后作者通过在词表中选择罕见词来作为特殊标记符，这样避免了预训练模型对特殊标记符有很强烈的先验知识。
+
+
+
+论文提出的方法是想用少量图片（如3到5张）去微调文生图模型，微调过程中这些图片中都包含有相同的物体，且图片对应的prompt基本相同，都为a[identifier] [class noun]的形式，如果只用普通的微调方式，会出现两个问题：     
+（1）过拟合      
+（2）语言漂移：在大量文本语料上预训练的语言模型，在特定任务上微调时，它会逐渐忘记通用的语言知识，而仅仅适配特定的任务       
+
+考虑到上面两个问题，作者提出「使用预训练文生图模型自己生成的图片来监督微调过程」的方法    
+即用预训练的diffusion模型，输入随机初始化的噪声 和条件 来生成一部分图片数据 ，注意， 对应的prompt形式为a [class noun]，也就是输入的类别。      
+比如我们微调的prompt设置为一只可爱的金毛狗，那么此处生成数据输入的prompt为一只可爱的狗，把这些生成的狗的图片和之前准备金毛的图片合在一起训练，防止微调过程后模型只会生成金毛，而忘了其他狗。因此作者使用了如下损失函数：
+
+class-specific prior preservation loss     
+![alt text](assets_picture/stable_diffusion/1710689488698.png)     
+其中x ^ θ 为模型，
+![alt text](assets_picture/stable_diffusion/1710689586024.png)为预训练模型根据包含标识符的提示词生成的向量，z_{t1}服从标准正态分布，c_pr是通过Text-Encoder得到的包含标识符的文本条件向量, λ是用于控制微调部分的权重。    
+
+前半部分让模型学习特定物品的表示，后半通过生成图片的监督防止模型忘记先验知识，其中 代表扩散模型，即输入图片 ，通过扩散模型加噪去噪后生成的图片尽量要和原始输入图片 尽量保持一致，后半部分对模型生成的训练数据也一样。         
+
+3、结论       
+整篇论文相对来说比较简单，但是在实际应用中确实很实用，毕竟在很多场景我们都希望某些物品是保持不变的。本篇论文最重要的地方在于损失函数的设计，通过加入模型自己生成图片一起训练来防止模型忘记先验知识。
+
 
 
 
@@ -1269,6 +1359,18 @@ Hypernetworks使用一个「辅助网络来预测新的权重」，并利用噪�
 LoRA和Hypernetworks的训练相对较快，因为它们不需要训练整个稳定扩散模型  
 
 #### LoRA
+
+kohya-ss的训练脚本给出了三种训练LoRA的方法：
+
+Dreambooth 无 Caption：需要正则化，学习提示词+类型。这种就属于老的DB style训练，通过文件夹名字选择单一提示词触发。
+
+Dreambooth 带 Caption：可以使用正则化，学习Caption或者标签。这是现在默认使用的训练方法，对每张图片对应的标签单独训练。这里的常见误解是文件夹名字对训练结果有有影响，其实有caption的时候文件夹名称仅仅用于控制重复次数。
+
+Fine-tune方法：不能使用正则化，需要准备metadata文件，这里暂且不提。     
+？？？？？？？？？
+
+
+矩阵低秩分解        
 秩分解矩阵     
 ![alt text](assets_picture/stable_diffusion/image-160.png)       
 r即rank,秩        
@@ -1380,7 +1482,19 @@ LoCon (Conventional LoRA): LoRA 只调整了 cross-attention layers，LoCon 还
 
 LoHa (LoRA with Hadamard Product): 用 Hadamard Product 替换掉了原方法中的矩阵点乘，理论上在相同的  下能容纳更多（丢失更少）的信息。该方法来自论文 FedPara Low-Rank Hadamard Product For Communication-Efficient Federated Learning。 
 
-LyCORIS 还实现了其他几种对 LoRA 改进的变体，因为很少有人用，这里不展开介绍。 作者：艾拉酱的内存条 
+LyCORIS 还实现了其他几种对 LoRA 改进的变体，因为很少有人用，这里不展开介绍。 
+
+
+LoCon是由LoRA演化而来，全称是LoRA for Convolution Network，    
+？？？？？？？？？              
+
+
+
+
+
+
+
+
 
 准备训练集       
 数据集准备       
@@ -1771,7 +1885,7 @@ A.氛围细节细化。如图所示 ，使用3D辅助的方式搭建场景白模
 具体怎么做？是借助交叉注意力吗，交叉注意力是在原模型计算，还是新的拷贝模型上计算？？？    
 
 ![Alt text](assets_picture/stable_diffusion/image-45.png)   
-“c”是我们要添加到神经网络中的一个额外条件。zero convolution”是一个1×1卷积层，权重和偏差都初始化为零。
+“c”是我们要添加到神经网络中的一个额外条件。`zero convolution”是一个1×1卷积层，权重和偏差都初始化为零。用以在一开始的时候就是sd主题模型在影响`        
 ControlNet将神经网络权重复制到一个锁定（locked）副本和一个可训练（trainable）副本。  可训练副本将会学习新加入的条件，而锁定副本将会保留原有的模型，得益于此在进行小数据集训练时不会破坏原有的扩散模型。
 
 stable diffusion的U-Net结构如下图所示，包含12个编码器块（Encoder Block），12个解码器块(Decoder Block)，还有一个中间块（Middle），完整模型包括25个块，其中有17个块是主块。文本使用clip进行编码，时间步长采用位置编码。   
@@ -1978,7 +2092,89 @@ torch._foreach_addcmul_(device_exp_avg_sqs, device_grads, device_grads, 1 - beta
 
 ```
 
-###### 训练时问题
+###### 训练案例，问题
+数据量       
+训练轮次           
+
+1. 设计你想要的生成条件      
+在设计你自己的生成条件前，有必要考虑一下两个问题:     
+
+哪种生成条件是我想要的？      
+是否已有现存的模型可以把正常图片转换成我的条件图片？      
+举个例子，假如我们想要使用人脸特征点作为生成条件。我们的思考过程应该是这样: 1. 一般基于特征点的 ControlNet 效果都还挺好。2. 人脸特征点检测也是一个很常见的任务，也有很多模型可以在普通图片上检测人脸特征点。3. `让 Stable Diffusion 去根据特征点生成人脸图片也挺有意思，还能让生成的人脸模仿别人的表情`。      
+![alt text](assets_picture/stable_diffusion/image-182.png)       
+
+2. 构建你自己的数据集
+好！那我们现在已经决定用人脸特征点作为生成条件了。接下来我们需要这样构建数据集:
+
+准备 ground truth 图片 (image): 这里指的就是真实人脸图片    
+准备 条件图片 (conditioning_image): 这里指的就是画出来的特征点        
+准备 说明文字 (caption): 描述图片的文字         
+针对这个项目，我们使用微软的 FaceSynthetics 数据集: 这是一个包含了 10 万合成人脸的数据集。你可能会想到其它一些人脸数据集，比如 Celeb-A HQ 和 FFHQ，但这个项目我们决定还是采用合成人脸。       
+![alt text](assets_picture/stable_diffusion/image-183.png)          
+
+这里的 FaceSynthetics 数据集看起来是个不错的选择: 它包含了真实的人脸图片，同时也包含了被标注过的人脸特征点（按照 iBUG 68 特征点的格式），同时还有人脸的分割图。      
+![alt text](assets_picture/stable_diffusion/image-184.png)       
+面部合成描述       
+
+然而，这个数据集也不是完美的。我们前面说过，我们应该有模型可以将真实图片转换到条件图片。但这里似乎没有这样的模型，把人脸图片转换成我们特征点标注形式（无法把特征点转换为分割图）。      
+![alt text](assets_picture/stable_diffusion/image-185.png)   
+ 
+
+所以我们需要用另一种方法:
+
+使用 FaceSynthetics 中的真实图片 (image)      
+使用一个现有的模型把人脸图片转换为 68 个特征点的形式。这里我们使用 SPIGA 这个模型
+https://github.com/andresprados/SPIGA    
+使用自己的代码把人脸特征点转换为人脸分割图，以此作为“条件图片” (conditioning_image)
+把这些数据保存为 Hugging Face DatasetAhttps://hf.co/docs/datasets/indexx   
+这里 是将真实图片转换到分割图的代码，以及将数据保存为 Hugging Face Dataset 的代码。
+https://hf.co/datasets/pcuenq/face_synthetics_spiga
+
+
+
+现在我们准备好了 ground truth 图片和“条件图片”，我们还缺少说明文字。我们强烈推荐你把说明文字加进去，但你也可以试试使用空的说明文字来看看效果。因为 FaceSynthetics 数据集并没有自带说明文字，我们使用 BLIP captioning 去给图片加上文字（代码在这里）。
+
+BLIP captioning 文档:
+https://hf.co/docs/transformers/model_doc/blip
+
+至此，我们就完成了数据集的构建。这个 Face Synthetics SPIGA with captions 数据集包含了 ground truth 图片、条件图片，以及对应的说明文字，总计有 10 万条数据。一切就绪，我们现在可以开始训练模型了。      
+https://hf.co/datasets/multimodalart/facesyntheticsspigacaptioned
+
+![alt text](assets_picture/stable_diffusion/image-186.png)       
+
+3. 模型训练
+有了 数据，下一步就是训练模型。即使这部分很难，但有了 下面的脚本，这个过程却变成了最简单的部分。我们用了一个 A100 GPU去训练（在 LambdaLabs 每小时 1.1 美元租的）。
+
+脚本地址:
+https://github.com/huggingface/diffusers/tree/main/examples/controlnet
+LambdaLabs:
+https://lambdalabs.com
+
+我们的训练经验   
+我们以 batch size 为 4 训练了 3 个 epoch。结果表明此策略有些太激进，导致结果出现过拟合现象。模型有点忘记人脸的概念了，即使提示语中包含“怪物史莱克”或“一只猫”，模型也只会生成人脸而不是“史莱克”或猫；同时模型也对各种风格变得不敏感。       
+
+如果我们只训练 1 个 epoch (即模型仅学习了 10 万张照片)，模型倒是能遵循输入的姿态，同时也没什么过拟合。看起来还行，但由于我们用的是合成数据，模型最终生成的都是些看起来很 3D 的人脸，而不是真实人脸。当然，基于我们用的数据集，生成这样的效果也正常。这里是训练好的模型 uncannyfaces_25K。      
+https://hf.co/multimodalart/uncannyfaces_25K     
+
+![alt text](assets_picture/stable_diffusion/image-187.png)     
+
+在这张可交互表格 (请访问下面的链接) 中，你可以看看不同步数下模型训练进度如何。在训练了大约 15k 步后，模型就已经开始学习姿态了。最终模型在 25k 步后成熟。      
+
+4. 总结
+训练 ControlNet 的过程非常有趣。我们已经成功地训练了一个可以模仿真实人脸姿态的模型。然而这个模型更多是生成 3D 风格的人脸图片而不是真实人脸图片，这是由于我们使用了合成人脸的数据执行训练。当然这也让生成的模型有了独特的魅力。
+
+
+![alt text](assets_picture/stable_diffusion/image-188.png)      
+
+下一步，为了生成真实的人脸图片，同时还不使用真实人脸数据集，我们可以用 Stable Diffusion Image2Image 跑一遍所有的 FaceSynthetics 图片，把看起来很 3D 的人脸转换成真实人脸图片，然后再训练 ControlNet。       
+
+
+
+
+
+###### 自己训练圆轮廓
+
 1.sdxl controlnet训练时    
 训练数据五万张    
 零卷积层梯度10**-5   
@@ -2284,7 +2480,8 @@ refiner model和base model在结构上有一定的不同，其UNet的结构如�
 
 ## 中文sd
 ### Taiyi-Stable-Diffusion-1B-Chinese-v0.1
-我们将Noah-Wukong数据集(100M)和Zero数据集(23M)用作预训练的数据集，先用IDEA-CCNL/Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese对这两个数据集的图文对相似性进行打分，取CLIP Score大于0.2的图文对作为我们的训练集。 我们使用IDEA-CCNL/Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese作为初始化的text encoder，冻住stable-diffusion-v1-4(论文)模型的其他部分，只训练text encoder，以便保留原始模型的生成能力且实现中文概念的对齐。该模型目前在0.2亿图文对上训练了一个epoch。 我们在 32 x A100 训练了大约100小时。  
+我们将Noah-Wukong数据集(100M)和Zero数据集(23M)用作预训练的数据集，先用IDEA-CCNL/Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese对这两个数据集的图文对相似性进行打分，取CLIP Score大于0.2的图文对作为我们的训练集。     
+我们使用IDEA-CCNL/Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese作为初始化的text encoder，冻住stable-diffusion-v1-4(论文)模型的其他部分，只训练text encoder，以便保留原始模型的生成能力且实现中文概念的对齐。该模型目前在0.2亿图文对上训练了一个epoch。 我们在 32 x A100 训练了大约100小时。  
 参数量：1B
 
 ### Taiyi-Stable-Diffusion-1B-Chinese-EN-v0.1
@@ -2295,6 +2492,74 @@ refiner model和base model在结构上有一定的不同，其UNet的结构如�
 第二个stage中将全部模型解冻，一起训练text encoder和diffusion model，以便diffusion model更好的适配中文guidance。
 
 第一个stage我们训练了80小时，第二个stage训练了100小时，两个stage都是用了8 x A100。
+
+
+### Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese
+首个开源的中文CLIP模型，1.23亿图文对上进行预训练的文本端RoBERTa-base     
+遵循CLIP的实验设置，以获得强大的视觉-语言表征。在训练中文版的CLIP时，我们使用chinese-roberta-wwm作为语言的编码器，并将open_clip中的ViT-L-14应用于视觉的编码器。为了快速且稳定地进行预训练，我们冻结了视觉编码器并且只微调语言编码器。此外，我们将Noah-Wukong数据集(100M)和Zero数据集(23M)用作预训练的数据集。在悟空数据集和zero数据集上预训练24轮,在A100x32上训练了6天。据我们所知，我们的Taiyi-CLIP是目前Huggingface社区中首个的开源中文CLIP。        
+
+
+Zero-Shot Classification
+
+model	dataset	Top1	Top5  
+Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese	ImageNet1k-CN	55.04%	81.75%
+
+Zero-Shot Text-to-Image Retrieval
+
+model	dataset	Top1	Top5	Top10        
+Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese	Flickr30k-CNA-test	58.32%	82.96%	89.40%       
+Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese	COCO-CN-test	55.27%	81.10%	90.78%  
+Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese	wukong50k	64.95%	91.77%	96.28%   
+
+    from PIL import Image
+    import requests
+    import open_clip
+    import torch
+    from transformers import BertModel, BertConfig, BertTokenizer
+    from transformers import CLIPProcessor, CLIPModel
+    import numpy as np
+
+    query_texts = ["一只猫", "一只狗",'两只猫', '两只老虎','一只老虎']  # 这里是输入文本的，可以随意替换。
+    # 加载Taiyi 中文 text encoder
+    text_tokenizer = BertTokenizer.from_pretrained("IDEA-CCNL/Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese")
+    text_encoder = BertModel.from_pretrained("IDEA-CCNL/Taiyi-CLIP-RoBERTa-102M-ViT-L-Chinese").eval()
+
+    url = "http://images.cocodataset.org/val2017/000000039769.jpg"  # 这里可以换成任意图片的url
+    # 加载openclip的image encoder
+    clip_model, _, processor = open_clip.create_model_and_transforms('ViT-L-14', pretrained='openai')
+    clip_model = clip_model.eval()
+
+
+    text = text_tokenizer(query_texts, return_tensors='pt', padding=True)['input_ids']
+    image = processor(Image.open(requests.get(url, stream=True).raw)).unsqueeze(0)
+    with torch.no_grad():
+        image_features = clip_model.encode_image(image)
+        text_features = text_encoder(text)[1]
+        # 归一化
+        image_features = image_features / image_features.norm(dim=1, keepdim=True)
+        text_features = text_features / text_features.norm(dim=1, keepdim=True)
+        # 计算余弦相似度 logit_scale是尺度系数
+        logit_scale = clip_model.logit_scale.exp()
+        logits_per_image =  logit_scale * image_features @ text_features.t()
+        logits_per_text = logits_per_image.t()
+        probs = logits_per_image.softmax(dim=-1).cpu().numpy()
+        print(np.around(probs, 3))
+
+
+### chinese-roberta-wwm-ext
+哈工大与科大讯飞联合实验室（HFL）是由HIT-SCIR和科大讯飞研究院共同创立的“科大讯飞超级大脑”项目引入的核心研发团队。主要研究课题包括大型语言模型、机器阅读理解、预训练语言模型等。    
+Chinese BERT with Whole Word Masking     
+For further accelerating Chinese natural language processing, we provide Chinese pre-trained BERT with Whole Word Masking.
+
+Pre-Training with Whole Word Masking for Chinese BERT    
+Yiming Cui, Wanxiang Che, Ting Liu, Bing Qin, Ziqing Yang, Shijin Wang, Guoping Hu
+
+This repository is developed based on：https://github.com/google-research/bert
+
+
+
+
+
 
 ## 动手QA
 ### 训练中文文生图

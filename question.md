@@ -18,6 +18,12 @@ ddpm在怎么设计分布？
 自问：kl散度为什么能约束分布到标准正态分布，vae为什么要将分布约束到标准正态分布        
 自问：ssim计算需要均值方差，FID的全称是Fréchet Inception Distance，用于衡量两个多元正态分布的距离，数值越小越好。通过特征提取，也需要计算均值方差。kl散度也需要计算分布的均值方差并加以约束，他们的关系是什么?       
 如何固定sd生成图片中人物的id        
+unet采样器的重参数化??????, vae重参数化是为了梯度反向传播能传回去    
+
+
+
+
+
 
 
 
@@ -234,8 +240,8 @@ Loss
             train_loss += loss.item()
             optimizer.step()
 
-
-编码器输出的只是正态分布的参数mean和std，隐变量是从该分布中采样出来的。但是采样这个操作，是不可导的，导致loss无法反向传播到编码器，从而更新编码器的参数。?????               
+#### 重参数化技巧
+编码器输出的只是正态分布的参数mean和std，隐变量是从该分布中采样出来的。但是`采样这个操作，是不可导的，导致loss无法反向传播到编码器`，从而更新编码器的参数。?????               
 为了解决这个问题，VAE中使用了一个重参数技巧，即从标准正态分布N(0, 1)中先采样出一个隐变量，再用编码器输出的mean和std对其进行变换。这也就等同于从N(mean, std)中采样了一个隐变量。???????     
 为什么解决了？？？？      
 ![alt text](assets_picture/question/image-10.png)         
@@ -600,6 +606,11 @@ ddim,pndm的加噪方式同ddpm. sde_ve不同，euler,heun不同
 pndm去噪使用逆sde方程，方法有两个：linear multistep method.（step_plms）。Runge-Kutta method（step_prk）       
 
 
+对于这个前向过程，宋飏博士在其获得了2021-ICLR-Outstanding-Paper-Award的论文里证明了DDPM里的离散加噪只是连续时间里的随机过程的离散化形式。     
+而对于前向的扩散过程和后向的去噪过程都有相对应的随机微分方程和常微分方程表示。并且DDPM的优化目标（预测每一步所添加的噪声）实际上可以理解为学习一个当前输入对目标数据分布的最优梯度方向。      
+
+在DDIM里宋博士证明了我们可以不止可以在后向去噪时使用确定性的常微分方程来得到确定性的采样结果，我们在前向扩散时也可以通过构造后向的常微分方程的逆过程来得到前向的最终加噪结果（这句话实际是在说如果我们有一条确定性的路径，那么前向和后向过程无非是正着走一遍和反着走一遍而已。）。这个结论使得扩散生成变得高度可控，不用担心对一张图的前后向得到完全不一样的图片使得一系列的调控成为可能。
+
 
 ## lora训练不稳定是因为什么，怎么解决
 rank a 需要选择合适， 太大又会过拟合      
@@ -916,11 +927,6 @@ Danbooru 标签超市
 镜头类型：wide shot， Sony A7 3， fish eye
 
 
-## ddpm在怎么设计分布？
-对于这个前向过程，宋飏博士在其获得了2021-ICLR-Outstanding-Paper-Award的论文里证明了DDPM里的离散加噪只是连续时间里的随机过程的离散化形式。     
-而对于前向的扩散过程和后向的去噪过程都有相对应的随机微分方程和常微分方程表示。并且DDPM的优化目标（预测每一步所添加的噪声）实际上可以理解为学习一个当前输入对目标数据分布的最优梯度方向。      
-
-在DDIM里宋博士证明了我们可以不止可以在后向去噪时使用确定性的常微分方程来得到确定性的采样结果，我们在前向扩散时也可以通过构造后向的常微分方程的逆过程来得到前向的最终加噪结果（这句话实际是在说如果我们有一条确定性的路径，那么前向和后向过程无非是正着走一遍和反着走一遍而已。）。这个结论使得扩散生成变得高度可控，不用担心对一张图的前后向得到完全不一样的图片使得一系列的调控成为可能。
 
 
 
@@ -984,14 +990,29 @@ InstantID还支持多重参考，允许使用多张参考图像来生成一个�
 
 3、IdentityNet：作者认为通过Image Adapter方法集成了图像和文本提示只是在粗粒度上的改进，对于人物ID图像生成是不够的，所以添加了一个额外的模块IdentityNet，利用弱空间信息（仅仅使用了人脸的5个面部关键点，两个眼睛，两个鼻子，两个嘴）和强语义信息（ID Embedding模块提取的人物详细的面部表情特征）来控制和引导图片的生成，对应上图模块3。         
 
+三、代码
+主要结合推理代码文件infer.py进行实践并与原理对应。
+
+1、ID Embedding —— 模块1
+
+这里作者使用的是insightface库直接提取的面部表情的Face Embedding。输入是图片地址face_image，输出是面部特征向量face_emb，
+
+
+2、Image Adapter —— 模块2
+
+这部分代码放在了pipeline_stable_diffusion_xl_instantid.py文件中，注释中的3.1和3.2分别是文本提示和图像提示的特征向量得到了对应的Cross Attention，最后在注释中的7.2结合组成一个解耦交叉注意力的层，送入到了Unet中。输入是Text embedding和Image embedding，输出是encoder_hidden_states。
+
+    # 7.2 Prepare added time ids & embeddings
+    encoder_hidden_states = torch.cat([prompt_embeds, prompt_image_emb], dim=1)
+
+3、IdentityNet —— 模块3
+
+实现部分放在了pipeline_stable_diffusion_xl_instantid.py文件中，有两部分的输入，一是face_kps，由模块1得到的五个关键点信息，二是face_emb面部特征信息，将得到的输出集成到Unet中。
 
 
 
 
-
-
-
-
+![alt text](assets_picture/question/image-35.png)       
 
 ### IP-Adapter
 ![alt text](assets_picture/question/image-34.png)    

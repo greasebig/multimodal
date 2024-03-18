@@ -811,7 +811,7 @@ special_tokens_map.json：映射文件，里面包含 unknown token 等特殊字
 tokenizer_config.json：分词器配置文件，存储构建分词器需要的参数；   
 vocab.txt：词表，一行一个 token，行号就是对应的 token ID（从 0 开始）。   
 
-### BERT 分词器   
+### BERT 分词器  Word-Piece 
 BERT族：Word-Piece   
 Word-Piece和BPE非常相似   
 BERT在使用Word-Piece时加入了一些特殊的token，例如[CLS]和[SEP]   
@@ -1054,7 +1054,7 @@ tokenize完的下一步就是将token的one-hot编码转换成更dense的embeddi
 
 
 
-### GPT clip 分词器
+### GPT clip 分词器 BPE
 GPT族：Byte-Pair Encoding (BPE)    
 bpe     
    
@@ -1275,7 +1275,7 @@ mode：‘fan_in’ (default) 或者 ‘fan_out’. 使用fan_in保持weights的
 
 
 
-## likelihood
+## likelihood, 先验， 后验， 依据
 X是特征、是属性、是对待分类物体的观测与描述；X属于{x1:有无胡须，x2：有无喉结，x3：是否穿了裙子，。。。}     
 Y是分类结果；Y属于{0：男，1：女}    
 
