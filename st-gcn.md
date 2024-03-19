@@ -131,7 +131,7 @@ python deploy/python/det_keypoint_unite_infer.py \
 ```
 
 ### 训练过程
-参数量很少，就是einsum矩阵乘法和一些conv2d堆叠    
+参数量很少，就是einsum矩阵乘法（空间支）和一些conv2d（时间支）堆叠    
 A：边注意力   
 
 ```
@@ -307,3 +307,94 @@ V	17	每个人物关键点的个数
 不写了，写怎么应用吧     
 使用例子截图，数据截图，   
 2024.1.18发不了就滑窗    
+319 openpose不够准确，hrnet太久，三维关键点才更加精确    
+
+
+## Drown
+## 检测，关键点准备
+这个过程好像没有用到跟踪       
+检测出来置信度过滤后直接进入关键点         
+
+    python deploy/python/det_keypoint_unite_infer.py \
+    --det_model_dir=output_inference/mot_ppyoloe_l_36e_pipeline/ \
+    --keypoint_model_dir=output_inference/dark_hrnet_w32_256x192 \
+    --video_file=/data/lujunda/drown/code/work/clip/1.mp4 \
+    --device=GPU --save_res=True --output_jsonpath=/data/lujunda/drown/code/work/clip/result/1.json
+
+输入是待检测视频，   
+检测阈值设置为0.5   
+使用opencv读取视频文件，获取每一帧图像，   
+
+    1) store_res: a list of image_data"
+    "2) image_data: [imageid, rects, [keypoints, scores]]"
+    "3) rects: list of rect [xmin, ymin, xmax, ymax]"
+    "4) keypoints: 17(joint numbers)*[x, y, conf], total 51 data in list"
+    "5) scores: mean of all joint conf")
+保存的数据结构  
+
+图片预处理成640*640大小检测 
+
+
+Yolo  
+检测后返回  
+'boxes': np.ndarray: shape:[N,6], N: number of box,   matix element:[class, score, x_min, y_min, x_max, y_max]   
+
+filter_box   
+留下置信度大于检测阈值设置0.5的    
+
+关键点  
+paddle直接用fluid自动推理计算，类似c++底层或者GPU曾操作，看不了，直接取结果   
+将np_heatmap = heatmap_tensor.copy_to_cpu()  
+还得搬到cpu才能看见向量   
+shape(1, 17, 64, 48)   
+后处理还原   
+dark_postprocess   
+transform_preds      
+
+translate_to_ori_images
+
+visual   
+在推理视频中绘制      
+keypoint_threshold=0.5   
+
+
+
+    if save_res:
+                store_res.append([
+                    index, keypoint_res['bbox'],
+                    [keypoint_res['keypoint'][0], keypoint_res['keypoint'][1]]
+                ])
+
+
+
+
+
+
+
+
+### 关键点       
+2020目前在人体姿态估计任务中，广泛采用heatmap作为训练目标，heatmap的编码和解码都遵从固定范式，却从未被深入探究。   
+不同于大量对网络结构的创新，CVPR 2020 中出现了两篇文章对heatmap提出了新的理解，并引入了无偏的编码/解码方式。这也揭示了一个全新的研究方向。   
+
+一、回顾heatmap的传统编解码方式
+heatmap是keypoints的概率分布图，通常建模成围绕每个keypoint的高斯分布的叠加。
+
+编码(encoding)：原始图像 --> ground truth heatmap
+解码(decoding)：predicted heatmap --> 原始图像中的keypoint坐标
+
+受限于计算开销，原始图像通常需要进行下采样，再输入网络中；预测出来的heatmap中的坐标信息也需要恢复到原始图像尺度。在这个过程中，就引入了sub-pixel的系统量化误差。
+
+![alt text](assets_picture/st-gcn/1710858482801.png)
+
+
+这篇文章思路很直观，方法也很简单，符合直觉，看得很舒服。
+
+它的核心思想就是编码和解码应保持一致性 。
+
+在传统方法中，编码时我们将heatmap作为一种高斯概率分布，解码时却只利用了最大值信息。DARK-Pose认为模型预测出的heatmap应与ground truth有一致性，即假设预测出的heatmap也是一个高斯分布，我们应该利用整个分布的信息来进行keypoint的精确位置预测。具体地，通过泰勒二阶展开，我们可以预测从最大值点到真实keypoint的偏移。具体推导见论文。 
+
+
+
+
+
+

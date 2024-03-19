@@ -121,7 +121,7 @@ Softmax：Softmax函数的公式是exp(xi) / Σ(exp(xj))，其中xi是输入向�
   Norm指 Layer Normalization，通常用于 RNN 结构，Layer Normalization 会将每一层神经元的输入都转成均值方差都一样的，这样可以加快收敛。
 ### Feed Forward
   
-  Feed Forward 层比较简单，是一个两层的全连接层，第一层的激活函数为 Relu，第二层不使用激活函数，对应的公式如下  
+  Feed Forward 层比较简单，是一个`两层的全连接层，第一层的激活函数为 Relu，第二层不使用激活函数`，对应的公式如下  
   ![Alt text](assets_picture/transformer/image-16.png)  
   X是输入，Feed Forward 最终得到的输出矩阵的维度与X一致。  
 
@@ -147,6 +147,9 @@ Softmax：Softmax函数的公式是exp(xi) / Σ(exp(xj))，其中xi是输入向�
 - 第一个 Multi-Head Attention 层采用了 Masked 操作。
 - 第二个 Multi-Head Attention 层的**K, V**矩阵使用 Encoder 的**编码信息矩阵C**进行计算，而**Q**使用上一个 **Decoder block 的输出**计算。
 - 最后有一个 Softmax 层计算下一个翻译单词的概率。
+
+`在unet交叉注意力层也是如此，kv来自condition, q来自上一个block`
+
 
 ###  第一个 Multi-Head Attention
   

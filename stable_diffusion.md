@@ -568,14 +568,39 @@ DDIM的采样过程
 ![Alt text](assets_picture/stable_diffusion/image-93.png)   
 ![Alt text](assets_picture/stable_diffusion/image-90.png)   
 ![Alt text](assets_picture/stable_diffusion/image-92.png)   
+![alt text](assets_picture/stable_diffusion/image-192.png)      
 
 
 ###### ddpm去噪
 ![Alt text](assets_picture/stable_diffusion/image-94.png)   
-贝叶斯计算，去噪是估计的后验分布中，方差是固定值（仅限于ddpm），只有均值需要求解，  
+为什么是q(x_t | x_t-1, x_0)?为什么不是q(x_t | x_t-1)??????????????        
+贝叶斯计算，去噪是估计的后验分布中，方差是固定值（仅限于ddpm），只有均值需要求解，   
+![Alt text](assets_picture/stable_diffusion/image-93.png)   
 ![Alt text](assets_picture/stable_diffusion/image-95.png)     
 ![alt text](assets_picture/stable_diffusion/image-191.png)      
-![Alt text](assets_picture/stable_diffusion/image-96.png)
+![Alt text](assets_picture/stable_diffusion/image-96.png)   
+
+![alt text](assets_picture/stable_diffusion/image-193.png)    
+这里的f(x)指的是概率分布     
+①式是我们传统贝叶斯公式的结果      
+②式是①式当中的xt和xt-1的分布没法直接计算，所以，额外引入了一个x0。??????     
+如果直接是②式，那么如何求出f(x_t-1)和f(x_t)     
+而如果有了x0的加入就会好求很多，准确来说是可求了     
+![alt text](assets_picture/stable_diffusion/a5c779e2231a285da10048febe9abb5.jpg)       
+
+
+
+![Alt text](assets_picture/stable_diffusion/image-94.png)   
+为什么是q(x_t | x_t-1, x_0)?为什么不是q(x_t | 
+
+
+具体来说这个细节是：
+
+1.扩散模型预测的其实是扩散模型只预测加入的噪声，也就是只预测一个高斯噪声；   
+2.既然预测的是高斯噪声，可以直接预测均值和方差；  
+3.DDPM作者发现可以直接固定这个噪声的方差，只预测均值就能取得很好的效果；     
+4.后面也有人预测噪声的方差，虽有效果提升，但是这种方式开销较大。     
+
 
 ###### eular原理
 得分函数角度  
@@ -3648,7 +3673,57 @@ adaLN-Zero block：采用zero初始化的adaLN，这里是将adaLN的linear层�
 
 ## svd （November 21, 2023）
 loss是什么？？          
+
 结合补帧软件效果拔群，缺点就是不可控，完全盲盒，看AI心情     
+
+### video LDM : High-resolution video synthesis with latent diffusion models 
+作者把LDM进入到高分辨率的视频生成任务中，提出了video LDM，通过在现有的LDM中引入时间信息，以此实现视频的生成。   
+![alt text](assets_picture/stable_diffusion/image-194.png)     
+
+![alt text](assets_picture/stable_diffusion/1710858971751.png)  
+![alt text](assets_picture/stable_diffusion/image-195.png)      
+对于视频来说，时间T一般都合并在了batch size中，所以这里就需要对数据维度进行变换  
+![alt text](assets_picture/stable_diffusion/image-196.png)   
+
+作者实现了两种temporal layer：
+
+temporal attention  
+residual blocks based on 3D convolutions  
+
+训练loss如下：  
+![alt text](assets_picture/stable_diffusion/image-197.png)  
+？？？？？？？   
+
+![alt text](assets_picture/stable_diffusion/1710859828340.png)     
+在实验中，选取0/1/2个context frames。在推理过程中，为了生成长视频，我们可以迭代地应用采样过程，重新使用最新的预测作为新的上下文，第一张图片是通过image model来生成。  
+
+
+
+此外autoencoder仅在图像上进行训练，在具有时间信息的图像上往往会出现闪烁伪影(flickering artifacts)，因此，作者为autoencoder的decoder添加了额外的temporal layers，固定encoder，使用由3D convolutions构建的(patch-wise) temporal discriminator在视频数据进行finetune。     
+![alt text](assets_picture/stable_diffusion/image-198.png)   
+
+Temporal Interpolation for High Frame Ratesw  
+为了生成高时间分辨率，作者把生成过程分为了两部分：
+
+第一部分：就是上面说到的内容，只是为了生成关键帧  
+第二部分：一个新的模型，目的是在给定关键帧上进行插帧  
+模型基本和上述作为condition的mask方法类似，区别在于mask的位置，这里是在关键帧之间插值，实现T → 4T 和 4T → 16T。  
+
+
+Temporal Fine-tuning of SR Models  
+为了获取更高分辨率的视频，作者在上面输出的低分辨率的视频基础上又添加了一个SR模型，模型的结构跟video LDM类似，也具有时间信息，这部分文章看的很迷，没有介绍具体的方法，估计得看看其他如果使用SD来做超分的工作了。  
+
+整体的PPL如下：  
+
+1：生成key frame  
+2/3：对key frame进行插帧  
+4：解码为RGB图片  
+5：超分  
+
+![alt text](assets_picture/stable_diffusion/image-199.png)  
+
+
+
 
 ### 背景
 在当前的视频生成模型研究中，普遍采用从头开始训练或增加时间层对文生图模型进行微调的方法。要么是通过插入额外的时间层从预训练的图像模型进行微调（部分或全部）     
@@ -3748,7 +3823,8 @@ Stable Diffusion 2.1，以为其提供强大的视觉表示
 接下来，我们微调模型，以生成14个分辨率为320×576的帧，进行100k次迭代，批量大小为768。
 
 #### 高分辨率文本到视频模型 
-约1百万个样本。数据集中的样本通常包含大量的物体运动，稳定的摄像机运动以及良好对齐的字幕，并且整体视觉质量很高。我们以576×1024的分辨率对基础模型进行了50,000次迭代的微调（再次将噪声计划转向更多噪声），批量大小为768。 
+约1百万个样本。数据集中的样本通常包含大量的物体运动，稳定的摄像机运动以及良好对齐的字幕，并且整体视觉质量很高。我们以576×1024的分辨率对基础模型进行了50,000次迭代的微调（再次将噪声计划转向更多噪声），批量大小为768。  
+视频loss如何设计？？？？？？？         
 
 #### 高分辨率图像到视频模型 
 除了文本到视频，我们还对我们的基础模型进行了图像到视频生成的微调，其中视频模型接收一幅`静态输入图像作为条件`。因此，我们将馈送到基础模型的文本嵌入替换为条件的CLIP图像嵌入。此外，我们将条件帧的噪声增强版本按通道连接到UNet的输入中。我们不使用任何遮罩技术，只是将帧沿时间轴进行简单复制。我们微调了两个模型，一个预测14帧，另一个预测25帧      
@@ -4125,6 +4201,53 @@ def forward(
 torch.Size([25, 3, 512, 640])     
 
 ？？？很多系数如sigma,gamma,c控制出入幅度，这些不太明白，eular步也不太明白？？？？   
+
+
+
+
+## Open Sora
+北京大学深圳研究生院-兔展智能AIGC联合实验室  深圳兔展智能科技有限公司  
+基于GAN（Generative Adversarial Networks，生成式对抗网络）的生成式AI，实现了图片自动风格化、AI字体自动成产，内容引擎的AI能力经过多年锻造，已经演变到了AI内容与代码智能生成引擎，包括了三大核心能力：1）基于生成式预训练Transformer的新一代交互模式，2）基于扩散模型的文生图和图生图，3）基于大模型的设计稿自动生成代码的能力。  
+
+
+下面, 我们将介绍我们的框架, 它由以下组成部分组成。  
+Video-VQVAE (VideoGPT) + DiT   
+
+
+Video VQ-VAE.  
+DiT : Denoising Diffusion Transformer. (采用了计算更友好的2D + 1D扩散型变换器架构?????) 
+Condition Encoder.  
+
+![alt text](assets_picture/stable_diffusion/image-200.png)  
+
+(1)可变长宽比  
+我们参考FIT实施了一种动态掩码策略, 以并行批量训练的同时保持灵活的长宽比。具体来说, 我们将高分辨率视频在保持长宽比的同时下采样至最长边为256像素, 然后在右侧和底部用零填充至一致的256x256分辨率。这样便于videovae以批量编码视频, 以及便于扩散模型使用注意力掩码对批量潜变量进行去噪。  
+![alt text](assets_picture/stable_diffusion/image-201.png)  
+
+(2) 可变分辨率  
+在推理过程中, 尽管我们在固定的256x256分辨率上进行训练, 但我们使用位置插值可以实现可变分辨率采样。我们将可变分辨率噪声潜变量的位置索引从[0, seq_length-1]下调到[0, 255]，以使其与预训练范围对齐。这种调整使得基于注意力的扩散模型能够处理更高分辨率的序列。  
+
+
+(3) 可变时长   
+我们使用VideoGPT中的Video VQ-VAE, 将视频压缩至潜在空间, 并且支持变时长生成。同时, 我们扩展空间位置插值至时空维度, 实现对变时长视频的处理。
+
+ 310 This repo supports training a latent size of 225×90×90 (t×h×w), which means we are able to train 1 minute of 1080P video with 30FPS (2× interpolated frames and 2× super resolution) under class-condition.   
+
+
+### DiT
+facebook   
+Scalable Diffusion Models with Transformers   
+
+![alt text](assets_picture/stable_diffusion/image-202.png)  
+
+replacing the commonly-used U-Net backbone with a transformer that operates on latent patches   
+Almost all of these models use a convolutional U-Net as a backbone  
+
+The DiT architecture is very similar to a standard Vision Transformer (ViT), with a few small, but important, tweaks调整.   
+
+
+我们尝试了几种不同的模块设计来注入这些输入。 最有效的是具有自适应层范数层 （adaLN） 的 ViT 块。   
+
 
 
 
