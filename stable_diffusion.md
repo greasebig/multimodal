@@ -841,7 +841,7 @@ latents = noise_scheduler.step(noise_pred, t, latents).prev_sample
 
 CFG是无需分类器辅助Classifier-Free Guidance的简称。为了理解CFG是什么，我们需要首先了解它的前身，分类器辅助。
 
-分类器辅助   
+##### 分类器辅助 Classifier Guidance
 分类器辅助是在扩散模型Diffusion model中将「图像标签」纳入考虑的一种方式。你可以使用标签来指导扩散过程。例如，标签“猫”将引导逆向扩散Reverse Diffusion 过程生成猫的照片。   
 ❝分类器辅助尺度是一个参数，用于控制扩散过程应该多大程度上遵循标签。
 ❞   
@@ -849,6 +849,33 @@ CFG是无需分类器辅助Classifier-Free Guidance的简称。为了理解CFG�
 分类器指导。左：无引导。中间：小的引导尺度。右图：大引导比例    
 在高分类器辅助下，扩散模型Diffusion model生成的图像会偏向极端或明确的示例。如果你要求模型生成一只猫的图像，它将返回一张明确是猫而不是其他东西的图像。 
 分类器辅助尺度控制着辅助的紧密程度。在上面的图中，右侧的采样比中间的采样具有更高的分类器辅助尺度。在实践中，这个尺度值只是对朝着具有该标签数据的漂移项的乘法因子。  
+
+##### cfg例子
+训练时        
+为了实现无分类器引导，我们使用 0.05 的概率单独删除文本和图像，使用 0.05 的概率同时删除文本和图像。   
+
+
+##### classifier guided stable diffusion      
+分类器不就是dreambooth的loss设计吗？？？？？         
+
+如何训练自己的分类器？？？？？？？？      
+
+为什么除了 CFG 之外，还要使用分类器？   
+分类器经过二元分类训练，`风格化图像标记为 1，LAION 图像标记为 0`。此技术不需要文本-图像对，而只需要两类图像。    
+??????如何实现？？？？？？？？        
+ It works a bit better when the prompt is aligned with the classifier instead of against it.       
+`减少对提示工程的依赖。您可以获得风格化的图像，而无需在提示中附加一堆艺术家标签`   
+在没有文本标签的情况下策划自己的美学。您可以在自定义数据集上训练自己的分类器，以策划独特的美学。`训练分类器比微调 SD 容易得多`，并且可以在大多数消费类 GPU（6GB vram 或更高）上完成       
+![alt text](assets_picture/stable_diffusion/1710144616674.png)        
+`改善构图`。SD 在非正方形图像的中心裁剪上进行训练。这在大多数情况下是有效的，但在推理过程中可能会导致构图不佳（您有时会得到躯干和脚的图像） 我们可以使用分类器来引导 SD 远离这些世代，方法是`将近方形的图像放在 1 类中，将高纵横比图像放在 0 类中`（这应用于艺术和动漫预训练分类器， 但不是照片分类器）   
+putting near-square images in the 1 class and high-aspect-ratio images in the 0 class          
+非文本指导。CFG 是一种使用文本标签之间差异的向量算术。一些美学品质在文本数据集中表现不佳，可以从纯图像分类器中受益 - 除了构图问题之外，还有具有分割视图、大边距和压缩伪影的图像，这些图像在文本数据中没有被标记为这样。         
+分类器独立于 SD 模型，因此只要 VAE 相同，就可以在 SD 的未来版本中使用。           
+
+
+
+
+##### 代码
 （CFG）尺度是一个值，用于控制文本提示对扩散过程的影响程度。当该值设为0时，图像生成是无条件的（即忽略了提示）。较高的值将扩散过程引导向提示的方向。 
 
 文生图这个pipeline的内部流程代码
@@ -2313,7 +2340,7 @@ SDXL相比之前的版本，一个最大的变化采用了更大的UNet，下表
 ![Alt text](assets_picture/stable_diffusion/image-25.png)  
 下面我们来重点看一下SDXL是如何扩增UNet参数的，SDXL的UNet模型结构如下图所示：  
 ![Alt text](assets_picture/stable_diffusion/image-26.png)  
-SDXL的第一个stage采用的是普通的DownBlock2D，而不是采用基于attention的CrossAttnDownBlock2D，这个主要是为了计算效率，因为SDXL最后是直接生成1024x1024分辨率的图像，对应的latent大小为128x128x4，如果第一个stage就使用了attention（包含self-attention），所需要的显存和计算量都是比较大的。    
+SDXL的第一个stage采用的是普通的DownBlock2D，而不是采用基于attention的CrossAttnDownBlock2D，这个主要是为了计算效率，因为SDXL最后是直接生成1024x1024分辨率的图像，对应的latent大小为128x128x4，`如果第一个stage就使用了attention（包含self-attention），所需要的显存和计算量都是比较大的`。    
 为了提高效率，并在最高特征级别中省略了Transformer块，在较低级别中使用2个和10个块，还在UNet 中完全删除了最低级别（8倍下采样）
 
 另外一个变化是SDXL只用了3个stage，这意味着只进行了两次2x下采样，而之前的SD使用4个stage，包含3个2x下采样。  
@@ -3669,6 +3696,80 @@ adaLN-Zero block：采用zero初始化的adaLN，这里是将adaLN的linear层�
 
 ### UViT
 全面研究了ViT上的三种架构设计选择——空间缩减、双通道和多尺度特征——并证明了一种普通的ViT架构可以实现这一目标，而无需手工制作多尺度特征
+
+
+## sd3
+2月21日  
+支持多主题提示词输入，并且能实现更好的文字书写效果。  
+![alt text](assets_picture/stable_diffusion/image-203.png)   
+提示：史诗般的动漫作品，一位巫师在夜晚的山顶上向漆黑的天空施放宇宙咒语，咒语写着 "Stable Diffusion 3"，由五彩缤纷的能量生成。    
+flow matching   
+DiT   
+![alt text](assets_picture/stable_diffusion/image-204.png)  
+网友在Adobe Firefly Image 2、DALL·E 3、Ideogram和Midjourney中输入相同提示生成的图片。   
+![alt text](assets_picture/stable_diffusion/image-205.png)   
+
+提出了新的多模态扩散 Transformer （Multimodal Diffusion Transformer， 简称 MMDiT） 架构，其使用独立的权重集分别表示图像和语言。与 SD3的先前版本相比，该架构改善了系统对文本的理解能力和拼写能力。  
+
+SD3 8B 大小的模型可以在 GTX409024G 显存上运行。此外，SD3将发布多个参数规模不等的模型方便在消费级硬件上运行，参数规模从800M 到8B。  
+
+SD3架构以 Diffusion Transformer （简称"DiT"，参见 Peebles & Xie，2023）为基础。鉴于文本嵌入和图像嵌入在概念上存在较大差异，他们为这两种模态使用了独立的权重集。通过这种方法，信息得以在图像 Token 和文本 Token 之间流动，从而提高了模型生成结果的整体理解力和排版质量。  
+
+SD3采用了矫正流 （Rectified Flow， 简称 RF） 的公式，在训练过程中，数据和噪声被连接在一条线性轨迹上。这导致了更直的推理路径，从而可以使用更少的步骤进行采样。
+
+他们还进行了扩展矫正流 Transformer 模型的研究，使用重新加权的 RF 公式和 MMDiT 主干网络，训练了一系列模型，其规模从15个 Transformer 块 （4.5亿参数） 到38个块 (80亿参数) 不等。   
+
+
+SD3还引入了灵活的文本编码器，通过在推理阶段移除内存密集型的 T5文本编码器（参数量高达47亿），SD3的内存占用可以大幅降低，而性能损失却很小。
+
+
+
+
+
+
+
+
+
+
+
+
+它从 Air Street Capital筹集了种子轮投资，在2023年3月以未披露的金额出售给Stability AI。当时，Clipdrop表示其拥有超过1500万用户。但在不到一年后，Stability AI就将它卖给了美国AI辅助写作初创公司Jasper。
+
+有观点指出，Stability AI急着发布SD3，或许就是为了盖过Clipdrop被收购的消息。Stability AI面临的困境和很多AI创业公司一样，正在以惊人的速度“烧钱”，却没有明确的盈利途径，还要时刻面临被OpenAI等高级玩家“降维打击”的威胁。去年年底，Stability AI还传出过CEO可能会被投资者罢免的消息，公司本身或许也在寻求被收购的机会。在这样的情境下，Stability AI迫切需要提振投资者的信  
+
+莫斯塔克在X平台上感慨“奥特曼（OpenAI的创始人兼CEO）真是一个魔术师”，并称Sora可以被视为AI视频的GPT3，将在未来几年内得到扩展、细化、调整和优化。  
+
+
+
+
+
+## animate anyone
+以前的技术，比如基于GAN的方法，虽然也能让图片动起来，但常常会出现一些问题，像是图片的某部分变得扭曲或者模糊，或者动画的每一帧之间看起来不够连贯。   
+
+Animate Anyone融合了多项创新技术，其中包括引入的ReferenceNet，这个网络专注于捕捉并保留原始图像信息，能够精准还原人物的外观、表情和服装细节。另外，它还运用了高效的Pose Guider姿态引导器，确保动作的精确度和可控性；同时，通过其时间序列生成模块，有效地确保视频帧之间的流畅连贯。  
+
+![alt text](assets_picture/stable_diffusion/image-206.png)  
+从直观感受来看，DreamPose 和 BDMM 在保持服装纹理细节方面有所欠缺，动作的连贯性和闪烁问题较为明显。相比之下，Animate Anyone则表现得像真人模特般自然流畅，衣服的纹理保持得很好，甚至连腿部衣裙的开衩都处理得非常精准，细节展现得更为到位。  
+
+视频生成技术尤其引人注目，从Runway的Gen-2模型到Meta的Emu Video，再到Stability AI的Stable Video Diffusion   
+
+实现机制   
+![alt text](assets_picture/stable_diffusion/image-207.png)  
+（1）姿势序列最初使用 Pose Guider 进行编码，并与多帧噪声融合，
+
+（2）由 Denoising UNet 进行视频生成的去噪过程。Denoising UNet 的计算模块由 Spatial-Attention、Cross-Attention 和 Temporal-Attention 组成，如右侧虚线框所示。参考图像的集成涉及两个方面。
+
+首先，通过ReferenceNet提取详细特征并用于空间注意力。   
+（类似instantID提取详细面部细节）    
+其次，通过CLIP图像编码器提取语义特征进行交叉注意力。时间注意力在时间维度上运作。  
+
+（3）最后，VAE解码器将结果解码为视频剪辑。
+
+在提供的论文中，也提到了该模型的3个局限性。  
+
+（1）与许多视觉生成模型类似，该模型可能难以为手部运动生成高度稳定的效果，有时会导致扭曲和动态模糊。（2）因为图像只提供了一个视觉的信息，在角色运动过程中产生看不见的部分会遇到潜在不稳定性的问题。（3）由于利用DDPM时，与非基于扩散模型的方法相比该模型显示出较低的运行效率，可能会影响动画的生成速度和实时性能。  
+
+
 
 
 ## svd （November 21, 2023）
