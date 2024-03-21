@@ -25,6 +25,13 @@ cfg和 not cfg具体原理，不只是代码
 代码如何实现prompt权重识别和划分        
 ! 采样器预测的均值是噪声的还是likelihood状态的？         
 ！ clip倒数一二层的区别      
+为什么开源社区很少人训练vae    
+具体讲讲语言编码器是怎么加的，维度，层数   
+lora在unet每一层都加吗？设置不同层采用有什么区别？？？   
+locon的resnet具体怎么改成rank相关   
+timpstep正余弦编码到底是什么   
+
+
 
 
 
@@ -37,11 +44,505 @@ cfg和 not cfg具体原理，不只是代码
 
 
 
+## timpstep正余弦编码到底是什么
+![alt text](assets_picture/question/image-59.png)    
+？？？？？？？？？       
+
+
+
+
+
+
+
+
+## 代码如何实现prompt权重识别和划分
+### tokenize
+整个tokenizer并没有涉及到prompt权重的问题
+
+sd main函数
+
+    prompt_embeds, negative_prompt_embeds = self.encode_prompt(
+                prompt,
+                device,
+                num_images_per_prompt,
+                self.do_classifier_free_guidance,
+                negative_prompt,
+                prompt_embeds=prompt_embeds,
+                negative_prompt_embeds=negative_prompt_embeds,
+                lora_scale=lora_scale,
+                clip_skip=self.clip_skip,
+            )
+
+encode_prompt函数  
+
+    # textual inversion: procecss multi-vector tokens if necessary
+                if isinstance(self, TextualInversionLoaderMixin):
+                    prompt = self.maybe_convert_prompt(prompt, self.tokenizer)
+
+    首先 textual inversion 判断 added_tokens_encoder，具体来说使用tokenize后进行判断，重新处理prompt
+
+    text_inputs = self.tokenizer(
+                prompt,
+                padding="max_length",
+                max_length=self.tokenizer.model_max_length,
+                truncation=True,
+
+
+    Converts a string in a sequence of tokens, using the tokenizer.   
+    tokens = self.tokenize(text, **kwargs)
+
+    Convert tokens of `tokenizers.AddedToken` type to string.  
+    escaped_special_toks : ['\\[CLS\\]', '\\[SEP\\]', '\\[UNK\\]', '\\[PAD\\]', '\\[MASK\\]']   
+
+    # "This is something<special_token_1>  else"
+            tokens = self.tokens_trie.split(text)
+    默认不需要add 特殊词进行划分
+    # "This is something<special_token_1>  else"
+    # ["This is something", "<special_token_1>", "  else"]
+    tokens ：['pokemon, red eyes, long nose, (blue hair)']
+
+    # ["This is something", "<special_token_1>", "else"]  
+
+    def _tokenize(self, text, split_special_tokens=False):
+        split_tokens = []
+        if self.do_basic_tokenize:
+            for token in self.basic_tokenizer.tokenize(
+                text, never_split=self.all_special_tokens if not split_special_tokens else None
+            ):
+                # If the token is part of the never_split set
+                if token in self.basic_tokenizer.never_split:
+                    split_tokens.append(token)
+                else:
+                    split_tokens += self.wordpiece_tokenizer.tokenize(token)
+        else:
+            split_tokens = self.wordpiece_tokenizer.tokenize(text)
+        return split_tokens
+    
+    text = self._clean_text(text)
+    去出单个无意义字符
+
+    bert模型的tokrnizer
+    中文版   
+
+    空格划分
+    __pydevd_ret_val_dict['whitespace_tokenize']：['pokemon,', 'red', 'eyes,', 'long', 'nose,', '(blue', 'hair)']
+
+    对上一个继续处理
+    分出标点符号
+    split_tokens ： ['pokemon', ',', 'red', 'eyes', ',', 'long', 'nose', ',', '(', 'blue', 'hair', ')']
+    对着这个迭代
+    split_tokens += self.wordpiece_tokenizer.tokenize(token)
+    'pokemon'
+
+
+    Tokenizes a piece of text into its word pieces. This uses a greedy longest-match-first algorithm to perform
+        tokenization using the given vocabulary.
+
+        For example, `input = "unaffable"` wil return as output `["un", "##aff", "##able"]`.
+
+        Args:
+            text: A single token or whitespace separated tokens. This should have
+                already been passed through *BasicTokenizer*.
+
+        Returns:
+            A list of wordpiece tokens.
+
+    主要思想就是如果单词如果不在两万多个token字典里，就进行切分
+
+    while start < end:
+        substr = "".join(chars[start:end])
+        if start > 0:
+            substr = "##" + substr
+        if substr in self.vocab:
+            cur_substr = substr
+            break
+        end -= 1 不在表里，右指针往内收缩。first_最长_贪心匹配dict
+        if cur_substr is None:
+            is_bad = True
+            break
+        sub_tokens.append(cur_substr)
+        start = end
+
+    ['pokemon', ',', 'red', 'eyes', ',', 'long', 'no', '##se', ',', '(', 'blue', 'hair', ')']
+    tokenize结果 
+
+    _convert_token_to_id
+    return self.vocab.get(token, self.vocab.get(self.unk_token))
+    self._unk_token ： '[UNK]'
+
+
+    ids ： [8934, 117, 9276, 12909, 117, 10037, 8275, 8417, 117, 113, 9036, 11408, 114]
+
+
+    first_ids = get_input_ids(text)
+    second_ids = get_input_ids(text_pair) if text_pair is not None else None
+
+    Prepares a sequence of input id, or a pair of sequences of inputs ids so that it can be used by the model. It
+        adds special tokens, truncates sequences if overflowing while taking into account the special tokens and
+        manages a moving window (with user defined stride) for overflowing tokens. Please Note, for *pair_ids*
+        different than `None` and *truncation_strategy = longest_first* or `True`, it is not possible to return
+        overflowing tokens. Such a combination of arguments will raise an error.
+
+
+
+    Build model inputs from a sequence or a pair of sequence for sequence classification tasks by concatenating and
+        adding special tokens. A BERT sequence has the following format:
+
+        - single sequence: `[CLS] X [SEP]`
+        - pair of sequences: `[CLS] A [SEP] B [SEP]`
+
+    加特殊符号 
+    sequence : [101, 8934, 117, 9276, 12909, 117, 10037, 8275, 8417, 117, 113, 9036, 11408, 114, 102]   
+    total_len = 15
+    token_type_ids
+    0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1
+        | first sequence    | second sequence |
+
+
+    encoded_inputs["input_ids"] = sequence
+
+
+    [PAD]
+
+     PaddingStrategy.LONGEST Pad to the longest sequence in the batch
+    - PaddingStrategy.MAX_LENGTH: Pad to the max length (default)
+    - PaddingStrategy.DO_NOT_PAD: Do not pad
+
+    LONGEST
+    使用这个
+    所以没变
+
+    self ：{'input_ids': [101, 8934, 117, 9276, 12909, 117, 10037, 8275, 8417, 117, 113, 9036, 11408, 114, 102], 'token_type_ids': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 'attention_mask': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]}
+
+    转成pt数据
+    return torch.tensor(value) 
+    [[101, 8934, 117, 9276, 12909, 117, 10037, 8275, 8417, 117, 113, 9036, 11408, 114, 102]]
+    转成
+    tensor([[  101,  8934,   117,  9276, 12909,   117, 10037,  8275,  8417,   117,
+           113,  9036, 11408,   114,   102]])
+
+
+
+    tokenize结束，
+    encodings ： {'input_ids': tensor([[  101,  8934,   117,  9276, 12909,   117, 10037,  8275,  8417,   117,
+           113,  9036, 11408,   114,   102]]), 'token_type_ids': tensor([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]), 'attention_mask': tensor([[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]])}
+    
+
+    整个tokenizer并没有涉及到prompt权重的问题
+
+
+
+    返回到sd ppl的数据
+    text_inputs : {'input_ids': tensor([[  101,  8934,   117,  9276, 12909,   117, 10037,  8275,  8417,   117,
+           113,  9036, 11408,   114,   102,     0,     0,     0,     0,     0,
+             0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+             0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+             0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+             0,     0]]), 'token_type_ids': tensor([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+         0, 0, 0, 0]]), 'attention_mask': tensor([[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+         0, 0, 0, 0]])}
+
+
+    在sd中没有用到text_target，在一般语言模型中可能会用到encodings["labels"] = target_encodings["input_ids"]
+
+    untruncated_ids = self.tokenizer(prompt, padding="longest", return_tensors="pt").input_ids
+
+    logger.warning(
+                    "The following part of your input was truncated because CLIP can only handle sequences up to"
+                    f" {self.tokenizer.model_max_length} tokens: {removed_text}"
+                )
+
+### embedding
+
+    if clip_skip is None:
+        prompt_embeds = self.text_encoder(text_input_ids.to(device), attention_mask=attention_mask)
+        #直接输出最后结果
+        prompt_embeds = prompt_embeds[0]
+    else:
+        prompt_embeds = self.text_encoder(
+            text_input_ids.to(device), attention_mask=attention_mask, output_hidden_states=True #输出中间层
+        )
+        # Access the `hidden_states` first, that contains a tuple of
+        # all the hidden states from the encoder layers. Then index into
+        # the tuple to access the hidden states from the desired layer.
+        prompt_embeds = prompt_embeds[-1][-(clip_skip + 1)]
+        # We also need to apply the final LayerNorm here to not mess with the
+        # representations. The `last_hidden_states` that we typically use for
+        # obtaining the final prompt representations passes through the LayerNorm
+        # layer.
+        prompt_embeds = self.text_encoder.text_model.final_layer_norm(prompt_embeds)
+
+    
+    获取embedding
+
+
+    encoder_attention_mask (`torch.FloatTensor` of shape `(batch_size, sequence_length)`, *optional*):
+            Mask to avoid performing attention on the padding token indices of the encoder input. This mask is used in
+            the cross-attention if the model is configured as a decoder. Mask values selected in `[0, 1]`:
+    - 1 for tokens that are **not masked**,
+    - 0 for tokens that are **masked**.
+
+    attention_mask = tensor([[1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+         1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+         1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.]],
+       device='cuda:0')
+
+    准备attention_mask, extended_attention_mask, head_mask
+
+    embeddings
+    embedding_output = self.embeddings(
+        input_ids=input_ids,
+        position_ids=position_ids,
+        token_type_ids=token_type_ids,
+        inputs_embeds=inputs_embeds,
+        past_key_values_length=past_key_values_length,
+    )
+
+
+    if position_ids is None:
+            position_ids = self.position_ids[:, past_key_values_length : seq_length + past_key_values_length]
+    position_ids = tensor([[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17,
+         18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
+         36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51]],
+       device='cuda:0')
+
+
+    input_ids : tensor([[  101,  8934,   117,  9276, 12909,   117, 10037,  8275,  8417,   117,
+           113,  9036, 11408,   114,   102,     0,     0,     0,     0,     0,
+             0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+             0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+             0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+             0,     0]], device='cuda:0')
+
+    inputs_embeds = self.word_embeddings(input_ids)   
+    token_type_embeddings = self.token_type_embeddings(token_type_ids)
+    Embedding(2, 768, padding_idx=0)
+
+    self.word_embeddings : Embedding(21128, 768, padding_idx=0)
+    内部是
+    def forward(self, input: Tensor) -> Tensor:
+        return F.embedding(
+            input, self.weight, self.padding_idx, self.max_norm,
+            self.norm_type, self.scale_grad_by_freq, self.sparse)
+
+    self.weight ： torch.Size([21128, 768])
+    没有bias
+    Attributes:
+        weight (Tensor): the learnable weights of the module of shape (num_embeddings, embedding_dim)
+                         initialized from :math:`\mathcal{N}(0, 1)`
+
+    即简单线性映射，没有bias
+
+    inputs_embeds : torch.Size([1, 52, 768])
+    token_type_embeddings : torch.Size([1, 52, 768])
+![alt text](assets_picture/question/image-58.png)   
+
+    embeddings = inputs_embeds + token_type_embeddings   
+
+    embeddings : torch.Size([1, 52, 768])
+
+    position_embeddings = self.position_embeddings(position_ids)
+    embeddings += position_embeddings
+
+    Embedding(512, 768)
+
+    重要程度是受到这个位置编码的 + 影响吗
+    位置的重要程度在这里体现？？？？    
+
+    那么（）的重要程度也是在input_ids的embed实现的吗
+    怎么设置训练让他能明白哪个重要？？？
+
+    embeddings = self.LayerNorm(embeddings)
+    embeddings = self.dropout(embeddings)
+    # 0.1
+
+
+
+
+### encoder
+attention_mask没用到   
+用了  
+extended_attention_mask（由 attention_mask 的 1 变 0）  
+head_mask ： 12 层 None 。实际也没用。决定某层哪些头被挡住
+
+    encoder_outputs = self.encoder(
+        embedding_output,
+        attention_mask=extended_attention_mask,
+        head_mask=head_mask,
+        encoder_hidden_states=encoder_hidden_states,
+        encoder_attention_mask=encoder_extended_attention_mask,
+        past_key_values=past_key_values,
+        use_cache=use_cache,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
+        return_dict=return_dict,
+    )
+
+    12 层
+        BertEncoder(
+    (layer): ModuleList(
+        (0-11): 12 x BertLayer(
+        (attention): BertAttention(
+            (self): BertSelfAttention(
+            (query): Linear(in_features=768, out_features=768, bias=True)
+            (key): Linear(in_features=768, out_features=768, bias=True)
+            (value): Linear(in_features=768, out_features=768, bias=True)
+            (dropout): Dropout(p=0.1, inplace=False)
+            )
+            (output): BertSelfOutput(
+            (dense): Linear(in_features=768, out_features=768, bias=True)
+            (LayerNorm): LayerNorm((768,), eps=1e-12, elementwise_affine=True)
+            (dropout): Dropout(p=0.1, inplace=False)
+            )
+        )
+        (intermediate): BertIntermediate(
+            (dense): Linear(in_features=768, out_features=3072, bias=True)
+            (intermediate_act_fn): GELUActivation()
+        )
+        (output): BertOutput(
+            (dense): Linear(in_features=3072, out_features=768, bias=True)
+            (LayerNorm): LayerNorm((768,), eps=1e-12, elementwise_affine=True)
+            (dropout): Dropout(p=0.1, inplace=False)
+        )
+        )
+    )
+    )
+
+    layer_head_mask = head_mask[i] if head_mask is not None else None   
+    实际用不到
+
+    query_layer ： torch.Size([1, 12, 52, 64])
+    12个头  
+     Take the dot product between "query" and "key" to get the raw attention scores.
+
+    if attention_mask is not None:
+        # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
+        attention_scores = attention_scores + attention_mask
+    
+    mask实际不起作用 + 0
+
+    attention_scores ： torch.Size([1, 12, 52, 52])
+
+    attention_mask ： tensor([[[[-0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0.,
+           -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0., -0.,
+           -0., -0., -0., -0., -0., -0.]]]], device='cuda:0',
+       dtype=torch.float16)
+    torch.Size([1, 1, 1, 52])
+
+
+    torch.Size([1, 12, 52, 52])
+    # Normalize the attention scores to probabilities.
+    attention_probs = nn.functional.softmax(attention_scores, dim=-1)   
+    torch.Size([1, 12, 52, 52])
+
+    # This is actually dropping out entire tokens to attend to, which might
+    # seem a bit unusual, but is taken from the original Transformer paper.
+    attention_probs = self.dropout(attention_probs)
+    0.1
+
+    # Mask heads if we want to
+    if head_mask is not None:
+        attention_probs = attention_probs * head_mask
+    决定该层哪些头被挡住
+
+    context_layer = torch.matmul(attention_probs, value_layer)
+
+    outputs = (context_layer, attention_probs) if output_attentions（False） else (context_layer,)
+
+    apply_chunking_to_forward(
+    forward_fn: Callable[..., torch.Tensor], chunk_size: int, chunk_dim: int, *input_tensors
+    ) -> torch.Tensor:
+    """
+    This function chunks the `input_tensors` into smaller input tensor parts of size `chunk_size` over the dimension
+    `chunk_dim`. It then applies a layer `forward_fn` to each chunk independently to save memory.
+    If the `forward_fn` is independent across the `chunk_dim` this function will yield the same result as directly
+    applying `forward_fn` to `input_tensors`.
+
+    没用到chunk节省运行内存
+
+
+    经过 12 layer的bert，始终没看到如何对（），位置首末的prompt控制权重加权
+    推理部分没有？？？ 
+
+
+    torch.Size([1, 52, 768])
+    pooler
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        # We "pool" the model by simply taking the hidden state corresponding
+        # to the first token.
+        first_token_tensor = hidden_states[:, 0]
+        torch.Size([1, 768])
+
+        pooled_output = self.dense(first_token_tensor)
+        dense 768*768
+        pooled_output = self.activation(pooled_output)
+        tanh
+        return pooled_output
+
+    dense
+    def forward(self, input: Tensor) -> Tensor:
+        return F.linear(input, self.weight, self.bias)
+    
+    weight torch.Size([768, 768])
+    bias torch.Size([768])
+
+    pooled_output torch.Size([1, 768])
+
+    return BaseModelOutputWithPoolingAndCrossAttentions(
+        last_hidden_state=sequence_output,
+        #torch.Size([1, 52, 768])
+        pooler_output=pooled_output,#实际不要
+        past_key_values=encoder_outputs.past_key_values,
+        hidden_states=encoder_outputs.hidden_states,
+        attentions=encoder_outputs.attentions,
+        cross_attentions=encoder_outputs.cross_attentions,
+    )
+
+### 出encoder，返回sd
+
+    prompt_embeds = prompt_embeds[0]
+    取出 sequence_output
+    torch.Size([1, 52, 768])
+
+    就是复制多个prompt进行多图生成对比的操作
+    # duplicate text embeddings for each generation per prompt, using mps friendly method
+    num_images_per_prompt : 1 则不动
+    prompt_embeds = prompt_embeds.repeat(1, num_images_per_prompt, 1)
+    prompt_embeds = prompt_embeds.view(bs_embed * num_images_per_prompt, seq_len, -1)
+
+
+    if do_classifier_free_guidance and negative_prompt_embeds is None:
+        uncond_tokens: List[str]
+        if negative_prompt is None:
+            uncond_tokens = [""] * batch_size
+    uncond_tokens : ['']
+    negative_prompt_embeds : torch.Size([1, 52, 768]) 不是纯 0，都有值
+
+    ip_adapter_image
+    image_embeds, negative_image_embeds = self.encode_image(
+                ip_adapter_image, device, num_images_per_prompt, 
+                output_hidden_state
+            )
+    if self.do_classifier_free_guidance:
+                image_embeds = torch.cat([negative_image_embeds, image_embeds])
+
+    
+
+
+
+
+    
+
+
+
 ## clip倒数一二层的区别  
 另外是一个小细节是SD 2.0提取的是text encoder倒数第二层的特征，而SD 1.x提取的是倒数第一层的特征。`由于倒数第一层的特征之后就是CLIP的对比学习任务，所以倒数第一层的特征可能部分丢失细粒度语义信息`，Imagen论文（见论文D.1部分）和novelai（见novelai blog）均采用了倒数第二层特征。  
 跳过多，prompt准确度差       
 
-例如，当我们尝试生成一个人的插图时，会是这样的一个情况（当然，实际情况可能远比这个更复杂）：   
+例如，当我们尝试生成一个人的插图时，会是这样的一个情况（当然，实际情况可能远比这个更复杂）：  
+
 ![alt text](assets_picture/question/image-55.png)   
 
 为什么是到12层呢？因为在该版本的模型中，深度为12层。
@@ -1262,6 +1763,23 @@ IP-Adapter 在一台配备 8 个 V100 GPU 的机器上进行了 100 万步的训
 
 ![alt text](assets_picture/question/image-36.png)
 
+#### 原始模型sd的问题
+ResBlock模块输入为时间编码和卷积后图像输出，把它们相加，这就是它的作用，具体细节不说了，就是卷积，全连接，这些很简单。
+
+SpatialTransformer模块输入为文本向量和上一步ResBlock的输出，
+
+那么这些concat和+是不是也有问题
+
+已有论文研究
+
+研究出DiT的交叉信息方式      
+以及可学习的权重系数       
+
+你可以把transformer当做一个特征提取器，它可以把重要信息给我们显现出来（仅帮助理解）
+
+![alt text](assets_picture/question/image-60.png)     
+
+![alt text](assets_picture/question/image-61.png)   
 
 
 

@@ -399,6 +399,13 @@ text encoder和image encoder
 
 
 ### UNet
+3.Unet model      
+unet模型相信小伙伴们都或多或少知道，就是多尺度特征融合，像FPN图像金字塔，PAN，很多都是差不多的思想，一般使用resnet作为backbone（下采样），充当编码器，这样我们就得到多个尺度的特征图，然后在上采样过程中，上采样拼接（之前下采样得到的特征图），这是一个普通的Unet    
+![alt text](assets_picture/stable_diffusion/image-209.png)     
+![alt text](assets_picture/stable_diffusion/image-210.png)
+
+
+
 其主要结构如下图所示（这里以输入的latent为64x64x4维度为例），其中encoder部分包括3个CrossAttnDownBlock2D模块和1个DownBlock2D模块，而decoder部分包括1个UpBlock2D模块和3个CrossAttnUpBlock2D模块，中间还有一个UNetMidBlock2DCrossAttn模块。encoder和decoder两个部分是完全对应的，中间存在skip connection。注意3个CrossAttnDownBlock2D模块最后均有一个2x的downsample操作，而DownBlock2D模块是不包含下采样的。  
 ![Alt text](assets_picture/stable_diffusion/image-2.png)   
 
@@ -579,6 +586,37 @@ DDIM的采样过程
 ![Alt text](assets_picture/stable_diffusion/image-95.png)     
 ![alt text](assets_picture/stable_diffusion/image-191.png)      
 ![Alt text](assets_picture/stable_diffusion/image-96.png)   
+zt没法求出准确解，用近似解代替      
+Zt其实就是我们要估计的每个时刻的噪声   
+不知道前一步加了多少噪声    
+- 这里我们使用Unet模型预测
+- 模型的输入参数有三个，分别是当前时刻的分布Xt和时刻t，还有之前的文本向量，然后输出预测的噪声，这就是整个过程了，
+
+加噪，按强度加高斯噪声       
+
+![alt text](assets_picture/stable_diffusion/image-208.png)   
+上面的Algorithm 1是训练过程，   
+其中第二步表示取数据，一般来说都是一类猫，狗什么的，或者一类风格的图片，不能乱七八糟什么图片都来，那模型学不了。        
+这是cfg cg？？？没有文本引导的时候，再用分类器引导训练？？？？？？      
+
+第三步是说每个图片随机赋予一个时刻的噪声（上面说过），
+
+第四步，噪声符合高斯分布，
+
+第五步，真实的噪声和预测的噪声算损失（DDPM输入没有文本向量，所有没有写，你就理解为多加了一个输入），更新参数。直到训练的输出的噪声和真实噪声相差很小，Unet模型训练完毕      
+早期ddpm不是文生图模型，而是图生图模型，用于风格转换，类内风格学习？？？是否是这个猜想？？？？？用cg引导训练推理         
+图生图则是在你原有的基础上加噪声，噪声权重自己控制，webui界面是不是有个重绘幅度，就是这个，   
+
+
+![alt text](assets_picture/stable_diffusion/image-208.png)    
+下面我们来到Algorithm2采样过程  
+不就是说Xt符合高斯分布嘛  
+执行T次，依次求Xt-1到X0，不是T个时刻嘛   
+Xt-1不就是我们逆向扩散推出的公式，Xt-1=μ+σZ，均值和方差都是已知的，唯一的未知噪声Z被Unet模型预测出来，εθ这个是指已经训练好的Unet，  
+
+
+
+
 
 ![alt text](assets_picture/stable_diffusion/image-193.png)    
 这里的f(x)指的是概率分布     
@@ -1166,8 +1204,56 @@ SD unCLIP是在原来的SD模型的基础上增加了CLIP的image encoder的nosi
 ### 个性化生成
 个性化生成是指的生成特定的角色或者风格，比如给定自己几张肖像来利用SD来生成个性化头像。在个性化生成方面，比较重要的两个工作是英伟达的Textual Inversion和谷歌的DreamBooth。 
 #### Textual Inversion
--  Textual Inversion这个工作的核心思路是基于用户提供的3～5张特定概念（物体或者风格）的图像来学习一个特定的text embeddings，实际上只用一个word embedding就足够了。Textual Inversion不需要finetune UNet，而且由于text embeddings较小，存储成本很低。  
+-  Textual Inversion这个工作的核心思路是`基于用户提供的3～5张特定概念（物体或者风格）的图像来学习一个特定的text embeddings，实际上只用一个word embedding就足够了`。Textual Inversion不需要finetune UNet，而且由于text embeddings较小，存储成本很低。  
 ![Alt text](assets_picture/stable_diffusion/image-19.png)
+
+
+代码实现：
+text_encode第一步就是检查textual inversion token     
+def maybe_convert_prompt(self, prompt: Union[str, List[str]], tokenizer: "PreTrainedTokenizer"):     
+
+Processes prompts that include a `special token` corresponding to a multi-vector textual inversion embedding to
+        be replaced with multiple special tokens each corresponding to one of the vectors. If the prompt has no textual
+        inversion token or if the textual inversion token is a single vector, the input prompt is returned.
+
+Maybe convert a prompt into a "multi vector"-compatible prompt. If the prompt includes a token that corresponds
+        to a multi-vector textual inversion embedding, this function will `process the prompt so that the special token
+        is replaced with multiple special tokens each corresponding to one of the vectors`. If the prompt has no textual
+        inversion token or a textual inversion token that is a single vector, the input prompt is simply returned.
+
+原理： 先做tokenize  
+tokens ： ['pokemon, red eyes, long nose, (blue hair)']    
+tokenized_text ： ['pokemon', ',', 'red', 'eyes', ',', 'long', 'no', '##se', ',', '(', 'blue', 'hair', ')']   
+
+    for token in unique_tokens:
+        if token in tokenizer.added_tokens_encoder:
+        replacement = token
+        i = 1
+        while f"{token}_{i}" in tokenizer.added_tokens_encoder:
+            replacement += f" {token}_{i}"
+            i += 1
+
+        prompt = prompt.replace(token, replacement)
+
+    return prompt
+不断判断，  
+__pydevd_ret_val_dict['added_tokens_encoder']： {'[PAD]': 0, '[UNK]': 100, '[CLS]': 101, '[SEP]': 102, '[MASK]': 103}   
+
+Textual Inversion会把新的token加在added_tokens_encoder   
+
+prompts ： ['pokemon, red eyes, long nose, (blue hair)']   
+因为没使用所以没变   
+
+
+
+
+
+
+
+
+
+
+
 #### DreamBooth
 - DreamBooth原本是谷歌提出的应用在Imagen上的个性化生成，但是它实际上也可以扩展到SD上（更新版论文已经增加了SD）。DreamBooth首先为特定的概念寻找一个特定的描述词[V]，这个特定的描述词只要是稀有的就可以，然后与Textual Inversion不同的是DreamBooth**需要finetune UNet**，这里为了防止过拟合，增加了一个**class-specific prior preservation loss**（基于SD生成同class图像加入batch里面训练）来进行正则化。  
 由于finetune了UNet，DreamBooth往往比Textual Inversion要表现的要好，但是DreamBooth的存储成本较高。  
@@ -3622,6 +3708,67 @@ attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len) + causal
 ### 如何替换text_encoder  
 直接换blip2缺封神导入  
 直接sd21换bert出现进unet的attn后计算交叉注意力会有变量维度不一样，无法运算   
+
+
+### sd推理ppl参数  
+    def __call__(
+        self,
+        prompt: Union[str, List[str]] = None,
+        height: Optional[int] = None,（ defaults to `self.unet.config.sample_size * self.vae_scale_factor`):
+                The height in pixels of the generated image.）
+        width: Optional[int] = None,
+        num_inference_steps: int = 50,
+        timesteps: List[int] = None,（Custom timesteps to use for the denoising process with schedulers which support a `timesteps` argument
+                in their `set_timesteps` method. If not defined, the default behavior when `num_inference_steps` is
+                passed will be used. Must be in descending order.）
+        guidance_scale: float = 7.5,（ defaults to 7.5):
+                A higher guidance scale value encourages the model to generate images closely linked to the text
+                `prompt` at the expense of lower image quality. Guidance scale is enabled when `guidance_scale > 1`.）
+        negative_prompt: Optional[Union[str, List[str]]] = None,
+        num_images_per_prompt: Optional[int] = 1,（The number of images to generate per prompt.）
+        eta: float = 0.0,
+        generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
+        latents: Optional[torch.FloatTensor] = None,（Pre-generated noisy latents sampled from a Gaussian distribution, to be used as inputs for image
+                generation. Can be used to tweak the same generation with different prompts. If not provided, a latents
+                tensor is generated by sampling using the supplied random `generator`.）
+        prompt_embeds: Optional[torch.FloatTensor] = None,（Pre-generated text embeddings. Can be used to easily tweak text inputs (prompt weighting). If not
+                provided, text embeddings are generated from the `prompt` input argument.）
+        negative_prompt_embeds: Optional[torch.FloatTensor] = None,
+        ip_adapter_image: Optional[PipelineImageInput] = None,
+        output_type: Optional[str] = "pil",
+        return_dict: bool = True,
+        cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+        guidance_rescale: float = 0.0,
+        clip_skip: Optional[int] = None,
+        callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
+        callback_on_step_end_tensor_inputs: List[str] = ["latents"],
+        **kwargs,
+    ):
+
+cfg   
+guidance_scale = 1时，只有promot起作用，空prompt以及负向prompt不起作用         
+循环迭代以下步骤    
+
+    # 使用UNet预测噪音
+        noise_pred = unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
+
+    # 执行CFG
+    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+    # 计算上一步的noisy latents：x_t -> x_t-1
+    latents = noise_scheduler.step(noise_pred, t, latents).prev_sample
+
+
+
+
+
+
+
+
+
+
+
 
 
 ## 视频基于关键字/图片检索片段
