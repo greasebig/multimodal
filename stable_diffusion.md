@@ -530,12 +530,84 @@ M：代表multistep。这意味着该采样器在每次迭代中会执行多步�
 带“Karras”标签的采样器采用了Karras论文推荐的噪声调度方案,也就是在`采样结束阶段将噪声减小步长设置得更小`。这可以让图像质量得到提升。  
 ![Alt text](assets_picture/stable_diffusion/image-60.png)  
 
-##### DDIM和PLMS
+##### 采样器原理 DDIM和PLMS
 DDIM(去噪扩散隐式模型)和PLMS(伪线性多步法)是最初Stable Diffusion v1中搭载的采样器。DDIM是最早为扩散模型设计的采样器之一。PLMS是一个较新的、比DDIM更快的替代方案。 
 它们通常被视为过时且不再广泛使用。   
 
-DDIM为什么有效？？？？  
-采样器算法如何用到代码里实现？每一步？？？  
+现在的一个问题是如何求逆向阶段的分布，也就是如果给定了一张加噪的图像，我们如何才能求得它前一时刻没有被破坏的那么严重的图像。经过数学高手们的一顿推导，发现两个重要结论：1. 逆向过程也服从高斯分布；2. 在知晓初始干净图像的情况下，我们能通过贝叶斯公式将逆向过程转换成前向过程，从而算出逆向过程的分布; 在公式上体现如下：     
+![alt text](assets_picture/stable_diffusion/image-212.png)    
+
+算出逆向过程的分布后，我们就可以训练一个模型，去尽力拟合这个高斯噪声分布，那么模型预估出来的结果也应该服从高斯分布：  
+![alt text](assets_picture/stable_diffusion/image-211.png)     
+
+现在逆向过程的分布有了（可以理解为 label），模型的预估分布也有了，就差一个 Loss 函数，而经过数学高手的又一顿推导，发现 Loss 居然是计算两个分布的 KL 散度，而且还是两个高斯分布的 KL 散度！朴素的说，KL 散度可以用来描述两个分布之间的差距。   
+![alt text](assets_picture/stable_diffusion/image-213.png)     
+
+多元高斯分布的 KL 散度是有闭式解的，具体公式如下：  
+![alt text](assets_picture/stable_diffusion/image-214.png)    
+
+![alt text](assets_picture/stable_diffusion/image-215.png)    
+为什么x_t-1需要重参数化采样，模型反向传播只在乎噪声，和x_t-1无关  ？？？？       
+训练时也只是训练噪声          
+
+下面简单介绍 DDIM 和 PLMS算法，它们均是对 DDPM 算法的改进。DDPM 在采样阶段需要迭代很多次（比如 1000）才能得到一个比较好的效果，而 DDIM、PLMS 算法则尝试使用较少的迭代次数来加速采样过程。下图是 DDIM 论文中给出的实验结果分析：   
+![alt text](assets_picture/stable_diffusion/8131cf7e203447408e5953bd885d16e8.png)    
+其中第一行（绿线...）是 DDIM 的结果，最后一行是 DDPM 的实验结果，使用 FID 来评估生成图像的质量，该值越小，表示结果越好；S 为迭代次数，只看红框中的 CIFAR10 数据集上的效果，可以发现随着迭代次数的增加，FID 越小，生成图像质量越好；另外可以注意到 DDIM 迭代到第 50 次左右时，就几乎能达到 DDPM 迭代到 1000 次的效果 （4.67 vs. 3.17）;     
+
+DDIM 重新推导了图像的生成公式：     
+![alt text](assets_picture/stable_diffusion/image-216.png)      
+其中 sigma_t 定义如下：     
+![alt text](assets_picture/stable_diffusion/image-217.png)     
+
+![alt text](assets_picture/stable_diffusion/1711072021994.png)      
+
+伪代码如下（DDIM 默认只迭代 50 步）：  
+![alt text](assets_picture/stable_diffusion/image-218.png)       
+
+PLMS     
+论文中给出采样过程的公式如下：    
+![alt text](assets_picture/stable_diffusion/image-219.png)     
+![alt text](assets_picture/stable_diffusion/image-220.png)      
+
+
+
+##### 前向后向
+前向阶段   
+![alt text](assets_picture/stable_diffusion/1711075826965.png)    
+![alt text](assets_picture/stable_diffusion/1711075888397.png)   
+![alt text](assets_picture/stable_diffusion/1711075951478.png)    
+
+重参数化 分布有什么用吗??????         
+![alt text](assets_picture/stable_diffusion/1711076210108.png)   
+
+逆向阶段   
+![alt text](assets_picture/stable_diffusion/1711079644637.png)   
+
+![alt text](assets_picture/stable_diffusion/1711079752139.png)   
+
+模型训练   
+![alt text](assets_picture/stable_diffusion/1711080104626.png)    
+所有x_t的交叉熵         
+![alt text](assets_picture/stable_diffusion/1711080128358.png)    
+这个kl散度是如何化简的？？？？？     
+![alt text](assets_picture/stable_diffusion/1711080156675.png)   
+两个分布方差一样吗？？？？？？        
+为什么一样    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ###### ddpm,ddim原理
 
@@ -3093,6 +3165,42 @@ Likelihood（似然） P（X|Y）：P（x1=0|0）=0.66，被告知图中将会�
 文生图，多模态信息交互方法：      
 - 文本信息。在crossAttnDownBlock中，（Transformer使用decoder部分）在第二个注意力模块中进行信息交互，q是前面的信息，kv是文本信息      
 - 时间步信息。在resnet中直接与hidden state +, 通过映射和变换维度，然后广播相加        
+
+
+ResBlock 网络结构图如下，它接受两个输入，图像 x 以及 timestep 对应的 embedding：    
+![alt text](assets_picture/stable_diffusion/image-221.png)    
+
+timestep_embedding 实现,同一般transformer的位置编码方式         
+timestep_embedding 的生成方式如下，用的是 Tranformer（Attention is All you Need）这篇 paper 中的方法：     
+![alt text](assets_picture/stable_diffusion/image-222.png)     
+
+在 Cross Attention 模块中，图像信息作为 Query，文本信息作为 Key & Value，模型会关注图像和文本各部分内容的相关性：     
+ Cross Attention 的作用   
+训练时给定一张马吃草的图，以及文本提示词：“一匹白色的马在沙漠吃草”    
+在做 Attention 时，文本中的 “马” 这个关键词和图像中的动物（也是 “马”）的关联性更强，因为权重也更大，而 “一匹”、 “白色”、“沙漠”、 “草” 等权重更低    
+当模型被训练的很好后，模型不仅将可以学习到图像和文本之间的匹配关系，通过 Attention 还可以学习到文本中的各个关键词想突出图像中哪些主体。     
+而当我们输入提示词用模型来生成图像时，比如输入 “一匹马在吃草”，由于模型此时已经能捕捉图像和文本的相关性以及文本中的重点信息，当它看到文本 “马”，在黑盒魔法的运作下，会重点突出图像 “马” 的生成；当它看到 “草” 时，便重点突出图像 “草” 的生成，从而尽可能生成和文本进行匹配的图像。
+
+训练时候：由噪声图像做query，查询文本的键和值。通过mse_loss不断训练预测噪声的能力，让噪声图像能准确预测出文本所指示的待去噪噪声   
+unet近似解出噪声分布       
+推理时：由噪声图像做query，查询文本的键和值      
+
+关联性强，权重大       
+这是prompt,clip对比学习的作用机制，
+那么（），句子首尾权重是不是clip训练出来的机制呢？？？？          
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 target = noise   
 model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample   
