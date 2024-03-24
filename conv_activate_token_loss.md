@@ -1308,5 +1308,158 @@ Likelihood P（X|Y）估计：有两种方法，极大似然估计（Maximum-Lik
 ？？？？       
 
 
+## 度量学习 Metric Learning
+度量学习 (Metric Learning) == 距离度量学习 (Distance Metric Learning，DML) == 相似度学习。  
+  在数学中，一个度量（或距离函数）是一个定义集合中元素之间距离的函数。一个具有度量的集合被称为度量空间。度量学习(Metric Learning) 是人脸识别中常用的传统机器学习方法，由Eric Xing在NIPS 2002提出，可以分为两种：
+
+通过线性变换的度量学习  
+通过非线性变化的度量   
+
+其基本原理是根据不同的任务来自主学习出针对某个特定任务的度量距离函数。后来度量学习又被迁移至文本分类领域，尤其是针对高维数据的文本处理，度量学习有很好的分类效果。  
+
+度量学习内容
+
+      根据不同的任务来自主学习出针对某个特定任务的度量距离函数。通过计算两张图片之间的相似度，使得输入图片被归入到相似度大的图片类别中去。
+
+![alt text](assets_picture/conv_activate_token_loss/image-31.png)   
 
 
+与经典识别网络相比
+
+经典识别网络有一个bug：必须提前设定好类别数。 这也就意味着，每增加一个新种类，就要重新定义网络模型，并从头训练一遍。
+
+比如我们要做一个门禁系统，每增加或减少一个员工(等于是一个新类别)，就要修改识别网络并重新训练。很明显，这种做法在某些实际运用中很不科学。
+
+因此，Metric Learning作为经典识别网络的替代方案，可以很好地适应某些特定的图像识别场景。一种较好的做法，是丢弃经典神经网络最后的softmax层，改成直接输出一根feature vector，去特征库里面按照Metric Learning寻找最近邻的类别作为匹配项。
+
+       目前，Metric Learning已被广泛运用于人脸识别的日常运用中。
+
+二、为什么用度量学习？
+
+       K-means、K近邻方法、SVM等算法，比较依赖于输入时给定的度量，比如：数据之间的相似性，那么将面临的一个基本的问题是如何获取数据之间的相似度。为了处理各种各样的特征相似度，我们可以在特定的任务通过选择合适的特征并手动构建距离函数。然而这种方法会需要很大的人工投入，也可能对数据的改变非常不鲁棒。度量学习作为一个理想的替代，可以根据不同的任务来自主学习出针对某个特定任务的度量距离函数。
+
+
+在机器学习中，我们经常会遇到度量数据间距离的问题。一般来说，对于可度量的数据，我们可以直接通过欧式距离(Euclidean Distance)，向量内积(Inner Product)或者是余弦相似度(Cosine Similarity)来进行计算。  
+但对于非结构化数据来说，我们却很难进行这样的操作，如计算一段视频和一首音乐的匹配程度。由于数据格式的不同，我们难以直接进行上述的向量运算，但先验知识告诉我们 ED(laugh_video, laugh_music) < ED(laugh_video, blue_music), 如何去有效得表征这种”距离”关系呢? 这就是 Metric Learning 所要研究的课题。     
+
+Metric learning 全称是 Distance Metric Learning，它是通过机器学习的形式，根据训练数据，自动构造出一种基于特定任务的度量函数。Metric Learning 的目标是学习一个变换函数（线性非线性均可）L，将数据点从原始的向量空间映射到一个新的向量空间，在新的向量空间里相似点的距离更近，非相似点的距离更远，使得度量更符合任务的要求，如下图所示。 Deep Metric Learning，就是用深度神经网络来拟合这个变换函数。       
+
+2. 应用
+Metric Learning 技术在生活实际中应用广泛，如我们耳熟能详的人脸识别(Face Recognition)、行人重识别(Person ReID)、图像检索(Image Retrieval)、细粒度分类(Fine-grained classification)等。随着深度学习在工业实践中越来越广泛的应用，目前大家研究的方向基本都偏向于 Deep Metric Learning(DML).
+
+一般来说, DML 包含三个部分: 特征提取网络来 map embedding, 一个采样策略来将一个 mini-batch 里的样本组合成很多个 sub-set, 最后 loss function 在每个 sub-set 上计算 loss. 如下图所示：   
+
+![alt text](assets_picture/conv_activate_token_loss/image-32.png)  
+
+
+3. 算法
+Metric Learning 主要有如下两种学习范式：
+
+3.1 Classification based:        
+这是一类基于分类标签的 Metric Learning 方法。这类方法通过将每个样本分类到正确的类别中，来学习有效的特征表示，学习过程中需要每个样本的显式标签参与 Loss 计算。常见的算法有 L2-Softmax, Large-margin Softmax, Angular Softmax, NormFace, AM-Softmax, CosFace, [ArcFace](https://arxiv.org/abs/1801.07698)等。 这类方法也被称作是 proxy-based, 因为其本质上优化的是样本和一堆 proxies 之间的相似度。
+
+3.2 Pairwise based:     
+这是一类基于样本对的学习范式。他以样本对作为输入，通过直接学习样本对之间的相似度来得到有效的特征表示，常见的算法包括：Contrastive loss, Triplet loss, Lifted-Structure loss, N-pair loss, [Multi-Similarity loss](https://arxiv.org/pdf/1904.06627.pdf)等
+
+2020 年发表的[CircleLoss](https://arxiv.org/abs/2002.10857)，从一个全新的视角统一了两种学习范式，让研究人员和从业者对 Metric Learning 问题有了更进一步的思考。     
+
+### Deep metric learning的pipeline
+
+深度度量学习的pipeline主要包括三个主要部分：
+
+1.输入样本的选择和准备（data mining）；
+
+2.网络模型结构的设计；
+
+3.度量损失函数的设计；
+
+
+
+deep metric leanring的核心在于最小化“相似”样本之间的某种距离度量，最大化“不相似”样本之间的某种距离度量，这里的“相似”的定义的范围非常广泛和灵活，例如对比学习中同标签也可以视为一种距离的衡量    
+
+关于deep metric learning中的样本，只要记住：
+
+一生二，二生三，三生万物即可。
+
+从上文也可以看出，metric learning针对的问题主要是广义上的相似度问题，因为这里的相似可以是公式计算的，也可以是人工设计的，也可以是更加抽象的人工判定的。文中给的很多领域的应用案例，高相似度样本都是人工判定的，比如图像的相似，语义的相似等等。那么问题就转化为：
+
+（1）我们已经有通过一些事先的方法找到的高相似的样本对，现在我们要去找低相似度的负样本对，这就涉及到negative mining的问题；
+
+（2）我们最终要把相似度计算的问题转化为 nn训练阶段的弱监督问题。
+
+针对于（2），其实我们可以将传统的strong supervised leanring和deep metric learning 统一到一个框架下，strong supervised learning和 weakly supervised learning，都属于supervised learning。
+
+这是一个很有意思的想法，在传统的strong supervised learning问题中，例如lr，svm，gbdt，我们常规的思考方式是“分界面”，即线性模型学习到数据的线性分界平面，复杂的非线性模型学习到的是非线性的分界平面。另外一种思考方式是，以二分类为例，lr将原始特征进行线性变换，使得都是“1”的样本在变换后的空间聚集在一起，对于gbdt而言，则是将原始特征进行非线性变换，对于svm而言更好理解，核函数本身就是隐式的对原始特征进行映射，不同核函数对应不同的新的特征空间，然后在这个空间中进行距离计算。
+
+而在deep metric learning中，则主要是以weakly supervised learning为主，这类supervised learning的输入不是单个样本，而往往是二元组，三元组甚至四元组。。。，无论是几元组，都可以看作是一堆的2元组构成的。
+
+回归正题，在deep metric learning中，正样本对的数量一般是有限的，而负样本对的数量则很多时候是无限的，而不同的negtive sample pairs，对于模型训练的意义是不同的，这个层面来看和分类模型训练过程中的 sample selection问题是类似的，模型效果不佳的主要原因常常在一些hard sample的区分错误上，例如lgb中的goss tree就考虑到和easy sample和hard sample的问题，focal loss也考虑到了easy sample和hard sample的问题。而deep metric learning 在样本层面的负样本对的采样也需要考虑这个问题，良好的采样策略既能提高nn的效果，又能提高网络的训练速度。
+
+在对比损失（contrastive loss）中确定训练样本最简单的方法是通过随机选择正或负样本对。一开始，一些论文倾向于使用简单的随机样本采样策略（随机选择两个非高相似的样本作为正负样本对）来对siamase network进行嵌入学习[29,88]。然而，[89]的作者强调，在网络达到可接受的性能水平后，学习过程可能会变慢，主要是有一些低质量的负样本对，对学习的过程完全没有什么帮助
+
+为了解决这一问题，使用hard negative mining的方法来做采样。三态网络使用一个锚点（anchor）、一个正样本和一个负样本来训练一个网络进行分类，大概就是长（a，b，c）这样。
+
+在[91]中，我们发现一些简单的三元组由于其判别能力较差，对模型的训练没有帮助。这些三元组造成了时间和资源的浪费。硬负样本对应的是由训练数据确定的假阳性样本。[32]中首次使用了semi-hard negative mining，目的是在给定范围内寻找负样本。与hard negative mining相比，这种采样方法采样出的负样本离锚点样本更远。
+
+
+### 2.深度度量学习的损失函数和常见网络结构    
+Siamese网络作为一种deep metric learning中的经典的网络结构，接收成对的图像(包括正、负样本)来训练网络模型（如下图）。成对图像之间的距离由损失函数计算。
+
+直观上，loss function的选择会有两种：
+
+1.和word2vec类似，构建分类问题的形式，即我们根据计算或人工判定的具有高相似的样本对的输入对应的标签为1，负样本对通过一些特定的设计的采样策略来产生（当然，人工判定的更可靠），标签为0，构建起一个二分类问题的模式（例如text match）；
+
+2.使用确定的metric，转化为回归问题，比如余弦计算所有样本对的jaccard similarity，将jaccard similarity作为标签，这种方法使得网络学习到的结果基本上就是metric的计算结果，缺点是看起来没啥意义，直接做jaccard similarity相似度就可以完成了，优点是 把 耗时的jaccard similarity的计算转化为embedding+点积 之类的简单的计算，配合faiss等工具可以非常快速的做最近邻检索；
+
+当然，这种方法和常规的方法之间的切换成本不高，因为我们要做的其实就是 准备好适合这种loss function的输入样本的形式，例如从 二元组输入到三元组输入，网络结构不变，改变loss function，开发成本不高的。
+
+![alt text](assets_picture/conv_activate_token_loss/image-35.png)  
+![alt text](assets_picture/conv_activate_token_loss/image-36.png)   
+![alt text](assets_picture/conv_activate_token_loss/image-37.png)   
+![alt text](assets_picture/conv_activate_token_loss/image-38.png)   
+
+
+
+
+
+
+
+
+
+
+
+
+#### Jaccard相似度
+杰卡德系数(Jaccard Index)，也称Jaccard相似系数(Jaccard similarity coefficient)，用于比较有限样本集之间的相似性与差异性。如集合间的相似性、字符串相似性、目标检测的相似性、文档查重等。   
+Jaccard系数的计算方式为:交集个数和并集个数的比值:   
+![alt text](assets_picture/conv_activate_token_loss/image-33.png)   
+jaccard值越大说明相似度越高。   
+相反地，Jaccard距离表示距离度量，用两个集合间不同样本比例来衡量:  
+![alt text](assets_picture/conv_activate_token_loss/image-34.png)   
+
+杰卡德距离用两个两个集合中不同元素占所有元素的比例来衡量两个集合的区分度。  
+jaccard相似度的缺点是值适用于二元数据的集合。   
+
+推荐算法之Jaccard相似度与Consine相似度   
+对于个性化推荐来说，最核心、重要的算法是相关性度量算法。相关性从网站对象来分，可以针对商品、用户、旺铺、资讯、类目等等，从计算方式看可以分为文本相关性计算和行为相关性计算，具体的实现方法有很多种，最常用的方法有余弦夹角（Cosine）方法、杰卡德（Jaccard）方法等。Google对新闻的相似性计算采用的是余弦夹角，CBU的个性化推荐以往也主要采用此方法。从9月份开始，CBU个性化推荐团队实现了杰卡德计算方法计算文本相关性和行为相关性，并且分别在线上做了算法效果测试。本文基于测试结果，进行了对比及一些分析比较。
+
+文本相关性的度量比较：cosine好一点点，但是Jaccard利于map/red计算
+Jaccard系数主要的应用的场景
+
+Jaccard的应用很广，最常见的应用就是求两个文档的文本相似度，通过一定的办法(比如shinging)对文档进行分词，构成词语的集合，再计算Jaccard相似度即可。当然，用途还有很多，不过大多需要结合其他的技术。比如：
+
+过滤相似度很高的新闻，或者网页去重
+
+考试防作弊系统
+
+论文查重系统
+
+计算对象间距离，用于数据聚类等。
+
+
+
+
+
+# 结尾
+![alt text](assets_picture/conv_activate_token_loss/image-29.png)   
+![alt text](assets_picture/conv_activate_token_loss/image-30.png)   
