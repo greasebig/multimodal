@@ -310,8 +310,8 @@ V	17	每个人物关键点的个数
 319 openpose不够准确，hrnet太久，三维关键点才更加精确    
 
 
-## Drown
-## 检测，关键点准备
+## Drown 算法流程
+### 训练数据准备。检测，关键点准备
 这个过程好像没有用到跟踪       
 检测出来置信度过滤后直接进入关键点         
 
@@ -343,8 +343,8 @@ filter_box
 留下置信度大于检测阈值设置0.5的    
 
 关键点  
-paddle直接用fluid自动推理计算，类似c++底层或者GPU曾操作，看不了，直接取结果   
-将np_heatmap = heatmap_tensor.copy_to_cpu()  
+paddle直接用fluid自动推理计算，类似c++底层或者GPU层操作，看不了每一步在网络层的计算中间结果，直接取最后结果   
+将np_heatmap = heatmap_tensor.copy_to_cpu()   
 还得搬到cpu才能看见向量   
 shape(1, 17, 64, 48)   
 后处理还原   
@@ -354,16 +354,116 @@ transform_preds
 translate_to_ori_images
 
 visual   
-在推理视频中绘制      
+在推理视频中绘制 框和关键点      
 keypoint_threshold=0.5   
 
+    if save_res:
+      store_res.append([
+          index, keypoint_res['bbox'],
+          [keypoint_res['keypoint'][0], keypoint_res['keypoint'][1]]
+      ])
 
+至此，完成对一帧的检测和处理   
+一帧之下，一个检测框带其附带的关键点，组成一组    
+
+如果一帧之下含有多个检测框          
+经过尝试，也可以检出，就是没有跟踪而已      
+单帧多个人体框检出记录方式   
+
+    [
+    [
+        1,
+        [
+            [
+                666,
+                484,
+                769,
+                673
+            ],
+            [
+                468,
+                420,
+                553,
+                579
+            ],
+            [
+                45,
+                110,
+                69,
+                163
+            ],
+            [
+                227,
+                346,
+                299,
+                472
+            ]
+        ],
+        [
+            [
+                [
+                    [
+                        747.4048461914062,
+                        514.0401000976562,
+                        0.7220870852470398
+                    ],
+                    [
+                        744.7247924804688,
+                        510.1248779296875,
+                        0.5243409872055054
+                    ],
+
+
+        。。。。。。
+
+        ],
+            [
+                [
+                    0.6903820037841797
+                ],
+                [
+                    0.654723048210144
+                ],
+                [
+                    0.686688244342804
+                ],
+                [
+                    0.18033269047737122
+                ]
+            ]
+
+
+
+
+
+2023用水上视频跑四阶段算法，可以多目标输出      
+但是代码和这个不一样        
+多人也能检测和关键点识别，根据2023年经验，但是用来跑一个多目标识别和关键点检测的视频      
+
+
+
+整个视频处理完成后   
 
     if save_res:
-                store_res.append([
-                    index, keypoint_res['bbox'],
-                    [keypoint_res['keypoint'][0], keypoint_res['keypoint'][1]]
-                ])
+      """
+      1) store_res: a list of frame_data
+      2) frame_data: [frameid, rects, [keypoints, scores]]
+      3) rects: list of rect [xmin, ymin, xmax, ymax]
+      4) keypoints: 17(joint numbers)*[x, y, conf], total 51 data in list
+      5) scores: mean of all joint conf
+      """
+      with open(FLAGS.output_jsonpath, 'w') as wf:
+          json.dump(store_res, wf, indent=4)
+
+
+### st-gcn训练过程
+将前面准备的数据处理成输入格式  
+
+
+
+
+
+### st-gcn三阶段推理过程
 
 
 
@@ -372,7 +472,13 @@ keypoint_threshold=0.5
 
 
 
-### 关键点       
+
+
+
+
+
+
+## 关键点算法基础       
 2020目前在人体姿态估计任务中，广泛采用heatmap作为训练目标，heatmap的编码和解码都遵从固定范式，却从未被深入探究。   
 不同于大量对网络结构的创新，CVPR 2020 中出现了两篇文章对heatmap提出了新的理解，并引入了无偏的编码/解码方式。这也揭示了一个全新的研究方向。   
 
