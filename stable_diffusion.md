@@ -1495,15 +1495,15 @@ class 此时的设置就应该是“man”。这个 class 的作用就是首先�
 
 此时 class 在设置为“man”后，系统在调用“Schwarzenegger”这三个训练集图片时，同时会生成3张正常的“man”的图片，以做平衡。具体是这样进行的，首先你设置参数如下：
 
-Instance Token = Schwarzenegger
-Class Token = man
-Instance Prompt = [filewords]
-Class Prompt = [filewords]
-# Class Images = 1
+    Instance Token = Schwarzenegger
+    Class Token = man
+    Instance Prompt = [filewords]
+    Class Prompt = [filewords]
+    # Class Images = 1
 这些参数的意思是，
 
 instance 代表这三个“Schwarzenegger”的训练集图片，Instance Token 就是告诉系统，在captions（图片描述文本）中，凡是有“Schwarzenegger”这个词时，就被识别为训练集图片的独有概念单词；
-Class token，就是说此次训练的内容是被框定在“man”这个 class 类目中的，系统会为每一个 Instance 图片生成若干匹配的一般意义上的“man”的图像，以避免“Schwarzenegger”这个新概念把所有“man”概念都劫持走。具体这个“若干”是多少呢？下面 # Class Images 处进行设置，本例子为 1；
+Class token，就是说此次训练的内容是被框定在“man”这个 class 类目中的，系统会为每一个 Instance 图片生成若干匹配的一般意义上的“man”的图像，以避免“Schwarzenegger”这个新概念把所有“man”概念都劫持走。具体这个“若干”是多少呢？下面 # Class Images 处进行设置，本例子为 1；   
 Instance Prompt 和 Class Prompt 默认。
 
 
@@ -2468,6 +2468,20 @@ Stable diffusion model 不足之处：文章中指出，之所以Stable Diffusio
 
 #### GLIGEN (Grounded Language-to-Image Generation)  
 如果给出了输入图像，可以在边界框定义的区域插入由文本描述的对象。否则，它将生成由标题/提示描述的图像，并在边界框定义的区域插入由文本描述的对象。它在 COCO2014D 和 COCO2014CD 数据集上进行训练，并且该模型使用冻结的 CLIP ViT-L/14 文本编码器来根据接地输入调节自身。   
+
+
+### 其他
+#### unconditional diffusion model
+If you provide your own folders with images, the script expects the following directory structure:
+
+    data_dir/xxx.png
+    data_dir/xxy.png
+    data_dir/[...]/xxz.png
+Unconditional image generation    
+Unconditional image generation models are not conditioned on text or images during training. It only generates images that resemble its training data distribution.    
+
+
+
 
 ## SDXL 1.0 （July 26, 2023）
 SDXL 0.9 June 22, 2023   
@@ -4603,6 +4617,22 @@ The DiT architecture is very similar to a standard Vision Transformer (ViT), wit
 
 
 我们尝试了几种不同的模块设计来注入这些输入。 最有效的是具有自适应层范数层 （adaLN） 的 ViT 块。   
+
+
+## sv3d
+![alt text](assets/stable_diffusion/image.png)   
+一种用于新颖的多视图合成的图像到视频模型  
+SV3D经过训练，可以生成分辨率为 576x576 的 21 帧，给定 1 个相同大小的上下文帧，最好是带有一个对象的白色背景图像。   
+SV3D_u：此变体基于单个图像输入生成轨道视频，无需相机调节。   
+SV3D_p ：扩展了SVD3_u的功能，该变体可容纳单个图像和轨道视图，从而允许沿指定的相机路径创建 3D 视频。   
+
+在指定高度生成静态轨道，例如。 10.0：   
+
+生成指定仰角和方位角的动态轨道：按从 0 到 360 的排序顺序指定 21 个仰角（以度为单位）到elevations_deg([-90, 90]) 和 21 个方位角（以度为单位）到azimuths_deg[0, 360] 的序列。  
+
+![alt text](assets/stable_diffusion/image-1.png)    
+
+
 
 
 
