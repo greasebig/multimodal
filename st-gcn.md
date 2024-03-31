@@ -463,10 +463,16 @@ keypoint_threshold=0.5
 
 
 
-### st-gcn三阶段推理过程
+### st-gcn四阶段推理过程
 
 
+python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pphuman.yml --video_file=/data/lujunda/drown/code/work/clip/1.mp4 --device=gpu 
 
+不明原因 跑不出结果
+
+1 2 1-1 都试过
+
+下次试一下aistudio上是否能出结果
 
 
 
