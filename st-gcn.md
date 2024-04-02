@@ -474,7 +474,52 @@ python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pph
 
 下次试一下aistudio上是否能出结果
 
+以上是因为ppdet版本太旧
 
+推理过程：
+
+    if frame_id % 10 == 0:
+        print('Thread: {}; frame id: {}'.format(thread_idx, frame_id))
+获取一个frame (1080, 1920, 3)   
+
+    res = self.mot_predictor.predict_image(
+        [copy.deepcopy(frame_rgb)],
+        visual=False,
+        reuse_det_result=reuse_det_result,
+        frame_count=frame_id)
+
+        记录现在是第几个frame
+        一次只输入一个frame进行mot计算
+        mot_sde_infer
+        该函数里面还有跨境mot do_mtmct
+        
+    mot_sde_infer
+    warmup_frame 50
+    det部分会转640*640
+    并附带转后scale factor方便之后可视化复原
+    Returns:
+        result (dict): include 'boxes': np.ndarray: shape:[N,6], N: number of box,
+            matix element:[class, score, x_min, y_min, x_max, y_max]
+
+
+    进入tracking process
+    判断使用哪种跟踪算法，然后进入
+    如use_botsort_tracker
+    botsort大类可分为use_deepsort_tracker（only support singe class），use_ocsort_tracker（only support singe class），use_botsort_tracker（ use BOTSORTTracker, only support singe class），use ByteTracker（support multiple class）
+
+    online_targets = self.tracker.update(pred_dets, img)
+    涉及online_targets[0].kalman_filter
+    返回tlwh id score等信息
+
+
+
+
+
+
+
+
+
+ mot output format: id, class, score, xmin, ymin, xmax, ymax   
 
 
 
