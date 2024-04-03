@@ -476,7 +476,30 @@ python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pph
 
 以上是因为ppdet版本太旧
 
-推理过程：
+
+模型前处理信息
+
+    Model Configuration -----------
+    Model Arch: STGCN
+    Transform Order: 
+    --transform op: AutoPadding
+    --------------------------------------------
+    -----------  Model Configuration -----------
+    Model Arch: HRNet
+    Transform Order: 
+    --transform op: TopDownEvalAffine
+    --transform op: Permute
+    --------------------------------------------
+    -----------  Model Configuration -----------
+    Model Arch: YOLO
+    Transform Order: 
+    --transform op: Resize
+    --transform op: Permute
+
+
+
+
+#### 推理过程：
 
     if frame_id % 10 == 0:
         print('Thread: {}; frame id: {}'.format(thread_idx, frame_id))
@@ -497,34 +520,214 @@ python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pph
     warmup_frame 50
     det部分会转640*640
     并附带转后scale factor方便之后可视化复原
+    input_tensor = self.predictor.get_input_handle(input_names[i])
+    input_tensor.copy_from_cpu(inputs[input_names[i]])
+    <paddle.fluid.core_avx.PaddleInferTensor object at 0x7f1dee50ca70>
+    输入放入gpu中
+
+    后处理置信度过滤
+    if np_boxes_num[0] <= 0:
+        print('[WARNNING] No object detected.')
+        result = {'boxes': np.zeros([0, 6]), 'boxes_num': [0]}使用NumPy库创建一个形状为 (0, 6) 的零矩阵（或者称为零数组）。这意味着创建了一个没有行数，但有6列的数组。
+        这将导致一个空数组，因为你实际上要求创建一个没有元素的数组
+        []
+
+    self.previous_det_result = det_result
+    这个操作主要为了跟踪
+
+跟踪也可以看出是 metric learning度量学习的相似度分类问题，通过建模度量学习识别相似图进行id跟踪   
+或者说这种开放域问题都可以视为度量学习问题   
+对于泛化性的普世研究   
+具体到每个问题，会有针对性优化，也即下游微调，跟踪就有基于轨迹的优化，   
+
+    经过det后
     Returns:
         result (dict): include 'boxes': np.ndarray: shape:[N,6], N: number of box,
             matix element:[class, score, x_min, y_min, x_max, y_max]
 
+    这就是det_predict的结果
+    万恶的fluid图，计算过程直接看不见，直接拿结果
+    self.predictor的很多函数操作都是在fluid中
+    fluid图放在gpu中
+    模型放入1.1g
+    输入也会在preprocess中放入
 
-    进入tracking process
+
+#### 进入tracking process
+
     判断使用哪种跟踪算法，然后进入
     如use_botsort_tracker
     botsort大类可分为use_deepsort_tracker（only support singe class），use_ocsort_tracker（only support singe class），use_botsort_tracker（ use BOTSORTTracker, only support singe class），use ByteTracker（support multiple class）
 
     online_targets = self.tracker.update(pred_dets, img)
+    输入是检测结果，以及1080p原图。检测结果好像没有经过rescale复原回原图大小就放进去了？？？？？？
+
     涉及online_targets[0].kalman_filter
     返回tlwh id score等信息
 
+    # Remove bad detections
+    lowest_inds = scores > self.track_low_thresh 
+    0.2
+
+    # Find high threshold detections
+    remain_inds = scores > self.track_high_thresh
+    0.3
+    dets = bboxes[remain_inds]
+    scores_keep = scores[remain_inds]
+    classes_keep = classes[remain_inds]
+
+
+    tlbr_to_tlwh
+
+    这种属于jde track
+
+    不适用reid
+
+    joint_stracks  
+
+    # Predict the current location with KF
+    STrack.multi_predict(strack_pool, self.kalman_filter)
+
+    可选
+    # Fix camera motion
+        if self.camera_motion:
+    计算均值 相关系数等
+
+    和前面时间步计算iou
+    # Associate with high score detection boxes
+    ious_dists = matching.iou_distance(strack_pool, detections)
+    matches, u_track, u_detection = matching.linear_assignment(
+        ious_dists, thresh=self.match_thresh)
+    0.7
+
+    ious具体计算
+    boxes = np.ascontiguousarray(atlbrs, dtype=np.float32)
+    query_boxes = np.ascontiguousarray(btlbrs, dtype=np.float32)
+    N = boxes.shape[0]
+    K = query_boxes.shape[0]
+
+    for k in range(K):
+        box_area = ((query_boxes[k, 2] - query_boxes[k, 0] + 1) *
+                    (query_boxes[k, 3] - query_boxes[k, 1] + 1))
+        for n in range(N):
+
+        ious[n, k] = iw * ih / ua
+    对两个list两两计算iou
 
 
 
+    matches, u_track, u_detection = matching.linear_assignment(
+        ious_dists, thresh=self.match_thresh)
+    0.7
 
 
 
+    dists = matching.iou_distance(r_tracked_stracks, detections_second)
+    matches, u_track, u_detection_second = matching.linear_assignment(
+        dists, thresh=0.5)
 
+    又进行一次second det的assignment计算   
+    又得到一次 matches, u_track,
+
+    dists = matching.iou_distance(unconfirmed, detections)
+
+    matches, u_unconfirmed, u_detection = matching.linear_assignment(
+        dists, thresh=0.7)
+    又算一次
+
+#### activate
+
+    track.activate(self.kalman_filter, self.frame_id)
+    activated_starcks.append(track)
+
+    """Start a new track"""
+
+
+    卡尔曼滤波器激活initiate
+    轨迹跟踪
+    Args:
+            measurement (ndarray): Bounding box coordinates (x, y, a, h) with
+                center position (x, y), aspect ratio a, and height h.
+
+    Returns:
+            The mean vector (8 dimensional) and covariance matrix (8x8
+            dimensional) of the new track. Unobserved velocities are 
+            initialized to 0 mean.
+
+    mean = np.r_[mean_pos, mean_vel]
+
+        std = [
+            2 * self._std_weight_position * measurement[3],
+            2 * self._std_weight_position * measurement[3], 1e-2,
+            2 * self._std_weight_position * measurement[3],
+            10 * self._std_weight_velocity * measurement[3],
+            10 * self._std_weight_velocity * measurement[3], 1e-5,
+            10 * self._std_weight_velocity * measurement[3]
+        ]
+        covariance = np.diag(np.square(std))
+    std还是根据经验公式计算的   
+
+
+    完成self.mean, self.covariance = self.kalman_filter.initiate(
+            self.tlwh_to_xyah(self._tlwh))
+
+#### 衔接
+
+    """ Merge """
+    self.tracked_stracks = [
+        t for t in self.tracked_stracks if t.state == TrackState.Tracked
+    ]
+    self.tracked_stracks = joint_stracks(self.tracked_stracks,
+                                            activated_starcks)
+    self.tracked_stracks = joint_stracks(self.tracked_stracks,
+                                            refind_stracks)
+
+    def remove_duplicate_stracks(stracksa, stracksb):
+    pdist = matching.iou_distance(stracksa, stracksb)
+    pairs = np.where(pdist < 0.15)
+    dupa, dupb = list(), list()
+    for p, q in zip(*pairs):
+
+    结束online_targets = self.tracker.update(pred_dets, img)
+    过于复杂
+    这还只是第一步跟踪，后续步都没开始推理
+    已经要一两小时
+
+    tracking_outs = {
+        'online_tlwhs': online_tlwhs,
+        'online_scores': online_scores,
+        'online_ids': online_ids,
+    }
+    return tracking_outs
+
+    结束if self.use_botsort_tracker:
+                    tracking_outs = self.tracking(det_result, batch_image_list)
+
+    mot_results.append([online_tlwhs, online_scores, online_ids])
 
  mot output format: id, class, score, xmin, ymin, xmax, ymax   
 
 
+    # flow_statistic only support single class MOT
+    boxes, scores, ids = res[0]  # batch size = 1 in MOT
 
+    工程量巨大
+    跳出一个 flow_statistic
 
+    Count totol number, number at a manual-setting interval
 
+    不知道什么时候开始关键点检测
+    就又有一个 flow_statistic
+
+检测跟踪实在是太卷，这还只是算法层面就这样了    
+晚上看了两个小时了，    
+如果不做，是否还继续看   
+不如直接水过去吗    
+如果秋招不面大厂   
+自己也不喜欢也没能力   
+是否还需要准备这么多，准备这些跟踪？？？？？    
+水过毕业？？？   
+专心实习进入aigc????   
 
 
 
