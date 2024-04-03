@@ -728,6 +728,12 @@ python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pph
 是否还需要准备这么多，准备这些跟踪？？？？？    
 水过毕业？？？   
 专心实习进入aigc????   
+自己还有两篇few step gen论文原理没看完呢  
+就在这里扒跟踪源码   
+急着发专利   
+慢慢来   
+既然不面大厂，也别再做一些违心的大厂准备   
+2024.4.4
 
 
 
