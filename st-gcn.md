@@ -1,4 +1,4 @@
-本篇讲解的是 STGCN，不是 ST-GCN！前者是用于「交通流量预测」，后者是用于「人体骨骼的动作识别」。名字很像，但是模型不一样。2018年发表     
+本篇讲解的不是 STGCN，是 ST-GCN！前者是用于「交通流量预测」，后者是用于「人体骨骼的动作识别」。名字很像，但是模型不一样。2018年发表     
 2019年发表在CVPR上的AS-GCN和2s-AGCN都是在该代码的基础上改进的。   
 ## 原理
 ![Alt text](assets_picture/st-gcn/image.png)   
@@ -553,7 +553,7 @@ python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pph
     输入也会在preprocess中放入
 
 
-#### 进入tracking process
+#### 进入tracking process botsort
 
     判断使用哪种跟踪算法，然后进入
     如use_botsort_tracker
@@ -671,6 +671,9 @@ python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pph
     完成self.mean, self.covariance = self.kalman_filter.initiate(
             self.tlwh_to_xyah(self._tlwh))
 
+
+
+
 #### 衔接
 
     """ Merge """
@@ -738,6 +741,46 @@ python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pph
 
 
 
+#### 输入输出
+直接看部分输入输出
+
+输入是待检测视频，
+检测阈值设置为0.5，
+使用opencv读取视频文件，获取每一帧图像，
+
+    1) store_res: a list of image_data"
+    "2) image_data: [imageid, rects, [keypoints, scores]]"
+    "3) rects: list of rect [xmin, ymin, xmax, ymax]"
+    "4) keypoints: 17(joint numbers)*[x, y, conf], total 51 data in list"
+    "5) scores: mean of all joint conf")
+保存的数据结构
+
+图片预处理成640*640大小检测 
+
+
+Yolo
+检测后返回      
+
+    'boxes': np.ndarray: shape:[N,6], N: number of box,   matix element:[class, score, x_min, y_min, x_max, y_max]
+
+关键点
+
+
+
+跟踪   
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## 关键点算法基础       
 2020目前在人体姿态估计任务中，广泛采用heatmap作为训练目标，heatmap的编码和解码都遵从固定范式，却从未被深入探究。   
 不同于大量对网络结构的创新，CVPR 2020 中出现了两篇文章对heatmap提出了新的理解，并引入了无偏的编码/解码方式。这也揭示了一个全新的研究方向。   
@@ -760,7 +803,108 @@ heatmap是keypoints的概率分布图，通常建模成围绕每个keypoint的�
 在传统方法中，编码时我们将heatmap作为一种高斯概率分布，解码时却只利用了最大值信息。DARK-Pose认为模型预测出的heatmap应与ground truth有一致性，即假设预测出的heatmap也是一个高斯分布，我们应该利用整个分布的信息来进行keypoint的精确位置预测。具体地，通过泰勒二阶展开，我们可以预测从最大值点到真实keypoint的偏移。具体推导见论文。 
 
 
+## 跟踪算法基础 
+MOT主流范式为基于检测的跟踪 tracking-by-detection，即先检测后跟踪。跟踪通常包括2个主要部分
+
+    目标的定位，主要是预测轨迹边界框和检测边界框之间的IoU
+    目标的外观模型和解决Re-ID任务
+    主要通过卡尔曼滤波 KF 预测后续帧的轨迹边界框位置
+    运动模型和状态估计
+    将新帧检测与当前轨迹集相关联
+    这2种方法都被量化为距离，并用于将关联任务作为全局分配问题来解决
+大多数SORT-like算法采用卡尔曼滤波器和恒速模型假设作为运动模型。KF 用于预测下一帧中的 tracklet 边界框，以与检测边界框相关联，并用于在遮挡或未检测到的情况下预测 tracklet 状态。    
+与目标检测器驱动的检测相比，使用 KF 状态估计作为跟踪器的输出会导致边界框形状次优。最近的大多数方法都使用了经典跟踪器 DeepSORT 中提出的 KF 状态表征，它试图估计框的纵横比而不是宽度，这导致宽度大小估计不准确。     
 
 
 
 
+
+
+### BoT-SORT 2022
+BoT-SORT: Robust Associations Multi-Pedestrian Tracking  
+
+    YOLOX & YOLOv7 support
+    Multi-class support（paddle中使用的还是单类）
+    Camera motion compensation
+    Re-identification
+https://github.com/NirAharon/BoT-SORT   
+https://arxiv.org/abs/2206.14651   
+[Submitted on 29 Jun 2022 (v1), last revised 7 Jul 2022 (this version, v2)]   
+
+SORT-like IoU-based 方法主要取决于 tracklet 的预测边界框的质量。因此，在许多复杂的场景中，预测边界框的正确位置可能会由于相机运动而失败，这导致2个相关边界框之间的重叠率低，最终导致跟踪器性能低下。作者通过采用传统的图像配准来估计相机运动，通过适当地校正卡尔曼滤波器来克服这个问题。这里将此称为相机运动补偿（CMC）。    
+在许多情况下，SORT-like 算法中的定位和外观信息（即重识别）会导致跟踪器的检测能力 (MOTA) 和跟踪器随时间保持正确身份的能力 (IDF1) 之间的权衡。使用 IoU 通常可以实现更好的 MOTA，而 Re-ID 可以实现更高的 IDF1  
+
+Contributions    
+通过解决上述 SORT-like 的跟踪器的限制并将它们集成到 ByteTrack      
+
+
+#### 原理   
+![alt text](assets_picture/st-gcn/image-12.png)     
+提出了一种新的鲁棒的SOTA的跟踪器，它结合了运动和表面信息的优势，以及相机运动补充和一个更精确的Kalman滤波状态向量。被称为BoT-SORT和BoT-SORT-ReID，在MOT17和MOT20 test排名第一。   
+
+目前经典的DeepSORT基本是用box的高宽比值作为KF状态的输出，但这样是次优的输出，不直接；像SOR T系列基本是以IOU作为评价相似性的方法，但是假如相机移动时，可能带来IOU计算不符合实际，需要添加相机运动补偿；
+
+提出了相机运动补偿方式和KF直接输出更好的box长宽而非比值；提出了一种简答有效的IOU和Re ID cosine距离融合方法。
+
+方法      
+本方法基于ByteTrack，同时对此做了3方面的改进。提出了BoT-SORT 和 BoT-SORT-ReID（BoT-SORT的提升）。
+
+
+2.1 Kalman Filter   
+一般方法中都是使用恒定速度的离散Kalman滤波模型对目标的运动进行建模。    
+![alt text](assets_picture/st-gcn/image-6.png)    
+说实话这个公式量已经不亚于去读各种采样器原理        
+通常采用SORT中恒速先验的卡尔曼滤波建模目标运动，其状态向量是7元组，但是实验中发现对边界框宽高的估计会比宽高比的估计更好，所以改成了8元组状态向量      
+![alt text](assets_picture/st-gcn/image-13.png)     
+
+2.2 相机运动模型CMC   
+怎么好像又涉及3d生成，视频生成的东西         
+微调lora        
+原因：Tracking-by-detection式跟踪器严重依赖于轨迹预测框和检测框之间的overlap。在动态摄像头场景下，box的像素位置会发生剧烈变化导致跟丢。即使在静态的摄像头中，由于风的影响，也会带来微笑震动。      
+https://cloud.tencent.com/developer/article/2362129       
+![alt text](assets_picture/st-gcn/image-7.png)     
+![alt text](assets_picture/st-gcn/image-8.png)   
+
+![alt text](assets_picture/st-gcn/image-9.png)   
+这些公式就跟采样器公式一样，符号多意义不明确      
+
+2.3 IoU和Re ID 融合    
+![alt text](assets_picture/st-gcn/image-10.png)    
+
+![alt text](assets_picture/st-gcn/image-11.png)   
+
+
+
+#### 卡尔曼滤波器
+
+几个名词解释：
+
+预测值：根据上一次最优估计计算出来的值。
+
+观测值：很好理解，就是观测到的值，比如观测到的物体的位置、速度。
+
+最优估计：又叫后验状态估计值，滤波器的最终输出，也作为下一次迭代的输入。
+
+我们可以在任何含有不确定信息的动态系统中的使用卡尔曼滤波，对系统的下一步动作做出有根据的猜测。猜测的依据是预测值和观测值，首先我们认为预测值和观测值都符合高斯分布且包含误差，然后我们预设预测值的误差Q和观测值的误差R，然后计算得到卡尔曼增益，最后利用卡尔曼增益来综合预测值和观测值的结果，得到我们要的最优估计。通俗的说卡尔曼滤波就是将算出来的预测值和观测值综合考虑的过程。     
+
+状态预测公式，作用是根据上一轮的最优估计，计算本轮的预测值。
+
+噪声协方差公式，表示不确定性在各个时刻之间的传递关系，作用是计算本轮预测值的系统噪声协方差矩阵。
+
+计算K卡尔曼系数，又叫卡尔曼增益。
+
+最优估计公式，作用是利用观测值和预测值的残差对当前预测值进行调整，用的就是加权求和的方式。
+
+更新过程噪声协方差矩阵，下一次迭代中2式使用。
+
+
+卡尔曼增益的推导   
+简直离谱，我不如直接去看采样器公式推导     
+或者nlp公式推导？？？          
+
+
+
+
+
+
+# 结尾
