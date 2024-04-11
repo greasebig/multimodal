@@ -748,27 +748,127 @@ python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pph
 检测阈值设置为0.5，
 使用opencv读取视频文件，获取每一帧图像，
 
-    1) store_res: a list of image_data"
-    "2) image_data: [imageid, rects, [keypoints, scores]]"
-    "3) rects: list of rect [xmin, ymin, xmax, ymax]"
-    "4) keypoints: 17(joint numbers)*[x, y, conf], total 51 data in list"
-    "5) scores: mean of all joint conf")
-保存的数据结构
+静态加载显存1.1g
 
-图片预处理成640*640大小检测 
+##### mot
+mot输入是原图片大小1080p           
 
+preprocess: 图片预处理成640*640大小再放进检测 
 
 Yolo
 检测后返回      
 
     'boxes': np.ndarray: shape:[N,6], N: number of box,   matix element:[class, score, x_min, y_min, x_max, y_max]
 
-关键点
+postprocess: 过滤出置信度大于0.5的保留    
+
+
+跟踪    
+tracking_outs = self.tracking(det_result, batch_image_list)       
+输入原图以及检测框     
+
+    tracking_outs = {
+            'online_tlwhs': online_tlwhs,# topleft
+            'online_scores': online_scores,
+            'online_ids': online_ids,
+        }
+
+这个结果做个转换
+
+    for box, score, i in zip(boxes[0], scores[0], ids[0]):
+        xmin, ymin, w, h = box
+        res = [i, 0, score, xmin, ymin, xmin + w, ymin + h]
+        mot_res.append(res)
+        # tlwh转成。。。
+    return {'boxes': np.array(mot_res)}
+
+mot output format: id, class, score, xmin, ymin, xmax, ymax       
+
+##### mot结束
+这个主要是用在人流统计，这里没有用到     
+flow_statistic only support single class MOT     
+
+    statistic = flow_statistic(
+                        mot_result,！！！！！！
+                        self.secs_interval,
+                        self.do_entrance_counting,
+                        self.do_break_in_counting,
+                        self.region_type,
+                        video_fps,
+                        entrance,
+                        id_set,
+                        interval_id_set,
+                        in_id_list,
+                        out_id_list,
+                        prev_center,
+                        records,！！！！！！！
+                        ids2names=self.mot_predictor.pred_config.labels)
+    records = statistic['records']  ！！！！   ！
+人流统计没启用，这个pipeline实现了五大功能，还可以禁停时间违法停车检测      
+
+crop_input, new_bboxes（扩大后的）, ori_bboxes = crop_image_with_mot(
+                    frame_rgb, mot_res)     
+
+def expand_crop(images, rect, expand_ratio=0.3):    
+
+扩大裁剪，1.3倍      
+
+    h_half = (ymax - ymin) * (1 + expand_ratio) / 2.
+    w_half = (xmax - xmin) * (1 + expand_ratio) / 2.
+
+##### 进入skeleton_action判断
+关键点检测以及st-gcn       
+
+
+输入为三通道的扩大裁剪图
+kpt_pred = self.kpt_predictor.predict_image(
+            crop_input, visual=False)     
+
+
+关键点内部   
+- 例如本次输入是(805, 625, 3)     
+- preprocess :    
+{'trainsize': [192, 256], 'type': 'TopDownEvalAffine'}   
+{'type': 'Permute'}    
+TopDownEvalAffine：  
+"""
+apply affine transform to image and coords
+
+    Args:
+        trainsize (list): [w, h], the standard size used to train
+        use_udp (bool): whether to use Unbiased Data Processing.
+        records(dict): the dict contained the image and coords
+
+    Returns:
+        records (dict): contain the image and coords after tranformed
+
+    """     
+get_affine_transform："""Get the affine transform matrix, given the center/scale/rot/output_size."""     
+Returns:
+        np.ndarray: The transform matrix.      
+cv2.warpAffine       
+输出(256, 192, 3)，          
+permute: (3, 256, 192)
 
 
 
-跟踪   
 
+
+
+
+
+
+
+
+
+a 
+
+    1) store_res: a list of image_data"
+    "2) image_data: [imageid, rects, [keypoints, scores]]"
+    "3) rects: list of rect [xmin, ymin, xmax, ymax]"
+    "4) keypoints: 17(joint numbers)*[x, y, conf], total 51 data in list"
+    "5) scores: mean of all joint conf")
+保存的数据结构
 
 
 
@@ -801,6 +901,38 @@ heatmap是keypoints的概率分布图，通常建模成围绕每个keypoint的�
 它的核心思想就是编码和解码应保持一致性 。
 
 在传统方法中，编码时我们将heatmap作为一种高斯概率分布，解码时却只利用了最大值信息。DARK-Pose认为模型预测出的heatmap应与ground truth有一致性，即假设预测出的heatmap也是一个高斯分布，我们应该利用整个分布的信息来进行keypoint的精确位置预测。具体地，通过泰勒二阶展开，我们可以预测从最大值点到真实keypoint的偏移。具体推导见论文。 
+
+
+
+
+### cv2.warpAffine
+仿射变换，又称仿射映射，是指在几何中，一个向量空间进行一次线性变换并接上一个平移，变换为另一个向量空间。    
+![alt text](assets_picture/st-gcn/image-14.png)   
+通过方程我们就可以很轻易的看出，c1和c2就相当于是让图像平移，而a和b这2个参数就是对图像进行旋转，缩放等操作。
+
+由于图像是3维的，所以这里还需要增加下维度，构建齐次方程进行运算
+
+    import cv2
+    import numpy as np
+    
+    lp = cv2.resize(cv2.imread('../images/lp.jpg'), None, fx=0.7, fy=0.7)
+    h, w, channel = lp.shape
+    
+    M = np.float32([[1, 0, 50], [0, 1, 50]])
+    new_lp1 = cv2.warpAffine(lp, M, (w, h))
+    M = np.float32([[1, 0.2, 0], [0.2, 1, 0]])
+    new_lp2 = cv2.warpAffine(lp, M, (w, h))
+    M = np.float32([[1.3, 0, 0], [0, 1.3, 0]])
+    new_lp3 = cv2.warpAffine(lp, M, (w, h))
+    
+    cv2.imshow('lp', np.hstack((lp, new_lp1, new_lp2, new_lp3)))
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+![alt text](assets_picture/st-gcn/image-15.png)
+
+
+
+
 
 
 ## 跟踪算法基础 
