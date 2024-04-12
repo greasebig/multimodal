@@ -553,7 +553,7 @@ python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pph
     输入也会在preprocess中放入
 
 
-#### 进入tracking process botsort
+#### 进入tracking process botsort（最难点）
 
     判断使用哪种跟踪算法，然后进入
     如use_botsort_tracker
@@ -824,10 +824,11 @@ def expand_crop(images, rect, expand_ratio=0.3):
 kpt_pred = self.kpt_predictor.predict_image(
             crop_input, visual=False)     
 
+此时显存1.8g   
+###### 关键点内部   
+例如某次的输入是(805, 625, 3)     
 
-关键点内部   
-- 例如本次输入是(805, 625, 3)     
-- preprocess :    
+preprocess :    
 {'trainsize': [192, 256], 'type': 'TopDownEvalAffine'}   
 {'type': 'Permute'}    
 TopDownEvalAffine：  
@@ -850,6 +851,161 @@ cv2.warpAffine
 输出(256, 192, 3)，          
 permute: (3, 256, 192)
 
+inputs (1, 3, 256, 192)
+
+predict    
+'''
+        Args:
+            repeats (int): repeat number for prediction
+        Returns:
+            results (dict): include 'boxes': np.ndarray: shape:[N,6], N: number of box,
+                            matix element:[class, score, x_min, y_min, x_max, y_max]
+                            MaskRCNN's results include 'masks': np.ndarray:
+                            shape: [N, im_h, im_w]
+        '''       
+输出是：result（heatmap）是(1, 17, 64, 48)      
+下采样4倍         
+
+例如64维度中第十三行
+
+    [6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.1804785e-05, 6.533717e-05, 8.219354e-05, 8.5734595e-05, 8.04631e-05, 0.00011036145, 0.00012661309, 0.0013357147, 0.0312597, 0.116559274, 0.25516352, 0.48690733, 0.6961217, 0.81392884, 0.75194377, 0.57636684, 0.34512103, 0.1755316, 0.071667686, 0.02051582, 0.0021151109, 0.0013283836, 0.0008929919, 0.0003331269, 0.00024613683, 0.000119642384, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05, 6.0683087e-05]
+
+    最大最小值分别是，出现热力点
+    0.81392884
+    6.0683087e-05
+
+
+postprocess     
+result = self.postprocess(inputs, result)    
+use_dark=False       
+kpts, scores = keypoint_postprocess(np_heatmap, center, scale)      
+center原expanded_crop图中心，scale原expanded_crop图尺寸/20固定值     
+
+get_final_preds
+
+    get_final_preds(self, heatmaps, center, scale, kernelsize=3):       
+        """the highest heatvalue location with a quarter offset in the
+        direction from the highest response to the second highest response.       
+        
+        Args:
+            heatmaps (numpy.ndarray): The predicted heatmaps
+            center (numpy.ndarray): The boxes center
+            scale (numpy.ndarray): The scale factor          
+        Returns:
+            preds: numpy.ndarray([batch_size, num_joints, 2]), keypoints coords
+            maxvals: numpy.ndarray([batch_size, num_joints, 1]), the maximum confidence of the keypoints
+        """
+
+    先进这个coords, maxvals = self.get_max_preds(heatmaps)
+        类似transformer处理，两维图像变一维
+        idx = np.argmax(heatmaps_reshaped, 2)
+        (1, 17)
+        maxvals = np.amax(heatmaps_reshaped, 2)
+        (1, 17)
+        
+        
+        amax
+        Return the maximum of an array or maximum along an axis.     
+        argmax :
+        Return the indices of the maximum values.
+
+
+        tile(A, reps):
+    """
+    Construct an array by repeating A the number of times given by reps.
+
+    repeat : Repeat elements of an array.
+
+    >>> a = np.array([0, 1, 2])
+    >>> np.tile(a, 2)
+    array([0, 1, 2, 0, 1, 2])
+    >>> np.tile(a, (2, 2))
+    array([[0, 1, 2, 0, 1, 2],
+           [0, 1, 2, 0, 1, 2]])
+    >>> np.tile(a, (2, 1, 2))
+    array([[[0, 1, 2, 0, 1, 2]],
+           [[0, 1, 2, 0, 1, 2]]])
+
+    preds[:, :, 0] = (preds[:, :, 0]) % width
+        preds[:, :, 1] = np.floor((preds[:, :, 1]) / width)
+
+    这个获取最大值的函数有些奇怪
+
+    遍历处理    
+    coords[n][p] += np.sign(diff) * .25
+
+    转换到原expanded_crop图中
+    transform_preds(coords, center, scale, output_size):
+    target_coords = np.zeros(coords.shape)
+    trans = get_affine_transform(center, scale * 200, 0, output_size, inv=1)
+    for p in range(coords.shape[0]):
+        target_coords[p, 0:2] = affine_transform(coords[p, 0:2], trans)
+    return target_coords
+
+    return np.concatenate(
+            (preds, maxvals), axis=-1), np.mean(
+                maxvals, axis=1)
+            preds(1, 17, 2) maxvals(1, 17, 1)
+            
+
+kpts, scores = keypoint_postprocess(np_heatmap, center, scale)         
+(1, 17, 3) [0.84424555]
+
+
+result包含
+
+主函数之外的后处理
+keypoint_vector, score_vector = translate_to_ori_images(
+                        kpt_pred, np.array(new_bboxes))     
+不是很清楚在搞什么，做了一些相加动作    
+
+kpt_res['keypoint'] = [
+        keypoint_vector.tolist(), score_vector.tolist()
+    ] if len(keypoint_vector) > 0 else [[], []]        
+kpt_res['bbox'] = ori_bboxes 即（[[837, 67, 1199, 709]]）
+
+
+###### 关键点结束
+self.kpt_buff.update(kpt_res, mot_res)  # collect kpt output     
+mot_res：类别 位置 置信度        
+
+state = self.kpt_buff.get_state(
+                    )       
+                    # whether frame num is enough or lost tracker      
+来源是跟踪那时候记录的      
+
+
+
+准备进入st-gcn      
+whether frame num is enough or lost tracker     
+什么时候进入：只有跟踪完一个人的时候      
+
+    if state:
+        if frame_id > self.warmup_frame:
+            self.pipe_timer.module_time[
+                'skeleton_action'].start()
+        collected_keypoint = self.kpt_buff.get_collected_keypoint(
+        )  # reoragnize kpt output with ID
+        skeleton_action_input = parse_mot_keypoint(
+            collected_keypoint, self.coord_size)
+        skeleton_action_res = self.skeleton_action_predictor.predict_skeleton_with_mot(
+            skeleton_action_input)
+        if frame_id > self.warmup_frame:
+            self.pipe_timer.module_time['skeleton_action'].end()
+        self.pipeline_res.update(skeleton_action_res,
+                                    'skeleton_action')
+
+
+
+然后对每一帧可视化       
+检测 关键点 行为识别        
+
+
+继续循环迭代每一帧         
+
+
+##### st-gcn内部还没有分析
+直接断点打到
 
 
 
@@ -858,10 +1014,8 @@ permute: (3, 256, 192)
 
 
 
-
-
-
-a 
+##### 结束输出？？？？？？？？？
+？？？？？？？？？
 
     1) store_res: a list of image_data"
     "2) image_data: [imageid, rects, [keypoints, scores]]"
