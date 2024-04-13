@@ -297,6 +297,10 @@ V	17	每个人物关键点的个数
 归为1
 ```
 
+没有写最后一层的输出是什么             
+
+
+
 ## ST-GCN的技术延展-动作生成
 
 基于对ST-GCN在人体动作识别上的效果,我们将ST-GCN网络与VAE网络结合。目的在于获取人体动作的语义,进而生成人体的动作,最终可以应用于机器人动作模仿或者其他强化学习项目中。
@@ -315,6 +319,7 @@ V	17	每个人物关键点的个数
 这个过程好像没有用到跟踪       
 检测出来置信度过滤后直接进入关键点         
 
+
     python deploy/python/det_keypoint_unite_infer.py \
     --det_model_dir=output_inference/mot_ppyoloe_l_36e_pipeline/ \
     --keypoint_model_dir=output_inference/dark_hrnet_w32_256x192 \
@@ -323,7 +328,9 @@ V	17	每个人物关键点的个数
 
 输入是待检测视频，   
 检测阈值设置为0.5   
-使用opencv读取视频文件，获取每一帧图像，   
+使用opencv读取视频文件，获取每一帧图像，  
+
+以下是st-gcn数据输入数据的准备，不涉及跟踪算法，只有检测和关键点      
 
     1) store_res: a list of image_data"
     "2) image_data: [imageid, rects, [keypoints, scores]]"
@@ -441,7 +448,7 @@ keypoint_threshold=0.5
 多人也能检测和关键点识别，根据2023年经验，但是用来跑一个多目标识别和关键点检测的视频      
 
 
-
+以下是st-gcn数据输入数据的准备，不涉及跟踪算法，只有检测和关键点      
 整个视频处理完成后   
 
     if save_res:
@@ -466,7 +473,7 @@ keypoint_threshold=0.5
 ### st-gcn四阶段推理过程
 
 
-python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pphuman.yml --video_file=/data/lujunda/drown/code/work/clip/1.mp4 --device=gpu 
+    python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pphuman.yml --video_file=/data/lujunda/drown/code/work/clip/1.mp4 --device=gpu 
 
 不明原因 跑不出结果
 
@@ -681,9 +688,9 @@ python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pph
         t for t in self.tracked_stracks if t.state == TrackState.Tracked
     ]
     self.tracked_stracks = joint_stracks(self.tracked_stracks,
-                                            activated_starcks)
+        activated_starcks)
     self.tracked_stracks = joint_stracks(self.tracked_stracks,
-                                            refind_stracks)
+        refind_stracks)
 
     def remove_duplicate_stracks(stracksa, stracksb):
     pdist = matching.iou_distance(stracksa, stracksb)
@@ -692,9 +699,9 @@ python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pph
     for p, q in zip(*pairs):
 
     结束online_targets = self.tracker.update(pred_dets, img)
-    过于复杂
-    这还只是第一步跟踪，后续步都没开始推理
-    已经要一两小时
+    过于复杂       
+    这还只是第一步跟踪，后续步都没开始推理   
+    已经要一两小时看
 
     tracking_outs = {
         'online_tlwhs': online_tlwhs,
@@ -704,7 +711,7 @@ python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pph
     return tracking_outs
 
     结束if self.use_botsort_tracker:
-                    tracking_outs = self.tracking(det_result, batch_image_list)
+        tracking_outs = self.tracking(det_result, batch_image_list)
 
     mot_results.append([online_tlwhs, online_scores, online_ids])
 
@@ -712,6 +719,7 @@ python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pph
 
 
     # flow_statistic only support single class MOT
+    未使用
     boxes, scores, ids = res[0]  # batch size = 1 in MOT
 
     工程量巨大
@@ -740,9 +748,25 @@ python deploy/pipeline/pipeline.py --config deploy/pipeline/config/infer_cfg_pph
 
 
 
+#### 跟踪维护了哪些变量
+输入：检测框（现在观测），上一个状态     
+输出：在字典里面维护现在的状态，并时刻维护state变量标志是否进入st-gcn
+
+iou计算可能要     
+还有维护一个 strack          
+
+
+
+
+
+
+
+
+
+
 
 #### 输入输出
-直接看部分输入输出
+直接看各部分输入输出
 
 输入是待检测视频，
 检测阈值设置为0.5，
@@ -964,6 +988,7 @@ kpt_res['keypoint'] = [
     ] if len(keypoint_vector) > 0 else [[], []]        
 kpt_res['bbox'] = ori_bboxes 即（[[837, 67, 1199, 709]]）
 
+关键点的输出是：
 
 ###### 关键点结束
 self.kpt_buff.update(kpt_res, mot_res)  # collect kpt output     
@@ -1004,8 +1029,253 @@ whether frame num is enough or lost tracker
 继续循环迭代每一帧         
 
 
-##### st-gcn内部还没有分析
-直接断点打到
+##### st-gcn内部分析
+直接断点打到     
+第一次判断直接累计到50帧max       
+
+    collected_keypoint = self.kpt_buff.get_collected_keypoint(
+
+    获取累计50帧的self.kpt_buff.keypoint_saver[1.0].bboxes，self.kpt_buff.keypoint_saver[1.0].kpts
+    每帧kpts包含十七个关键点x,y,score
+    取出同时清空self的记录，然后将state打False
+此时 trackid = 1       
+ 
+下一次五十帧再判断时 trackid 也可能还是 1   
+再过一次`前处理`变成模型输入
+
+    skeleton_action_input = parse_mot_keypoint(
+        collected_keypoint, self.coord_size)  
+
+    内部：
+    kpts = np.array(kpt_seq.kpts, dtype=np.float32)[:, :, :2]
+    (50, 17, 2) 
+    kpts = np.expand_dims(np.transpose(kpts, [2, 0, 1]),
+            -1)  #T, K, C -> C, T, K, 1
+    (2, 50, 17, 1)
+    第0维分为x y 索引
+
+    bbox = np.array(kpt_seq.bboxes, dtype=np.float32)
+    skeleton.append(refine_keypoint_coordinary(kpts, bbox, coord_size))
+    coord_size ： [384, 512]
+
+    refine_keypoint_coordinary返回(2, 50, 17, 1)
+    计算互相加减乘除 
+
+    好像是还原回原图位置
+
+    skeleton_action_input ： 
+    {'mot_id': [1.0], 'skeleton': （大小(2, 50, 17, 1)）
+    [array([[[[166.76791763],
+         [173.67407227],
+         [166.76791763],
+         ...,
+         [180.58011246],
+         [256.54701233],
+         [284.17126465]],
+
+        [[160.17827225],
+         [167.13092422],
+         [160.17827225],
+         ...,
+         [146.27297974],
+         [243.61003876],
+         [257.51531982]],
+
+        [[188.52428055],
+         [188.52428055],
+         [188.52428055],
+         ...,
+         [167.67022705],
+         [251.08644104],
+         [278.89194489]],
+
+        ...,
+
+        [[171.34708786],
+         [177.12187958],
+         [159.79773331],
+         ...,
+         [ 26.97930908],
+         [119.37472916],
+         [ 44.30344963]],
+
+        [[177.11967087],
+         [182.89842224],
+         [159.78333664],
+         ...,
+         [ 32.65013123],
+         [125.11058807],
+         [ 49.98647118]],
+
+        [[171.27765656],
+         [182.87133408],
+         [159.68396759],
+         ...,
+         [ 32.1534977 ],
+         [124.90293503],
+         [ 43.74717808]]],
+
+
+       [[[ 82.84526825],
+         [ 67.26894379],
+         [ 67.26894379],
+         ...,
+         [337.25857544],
+         [446.29284668],
+         [415.14019775]],
+
+        [[ 72.0873642 ],
+         [ 61.70358658],
+         [ 61.70358658],
+         ...,
+         [336.87362671],
+         [451.09515381],
+         [414.75195312]],
+
+        [[ 78.99394226],
+         [ 68.60202789],
+         [ 68.60202789],
+         ...,
+         [343.98788452],
+         [447.90704346],
+         [421.92727661]],
+
+        ...,
+
+        [[ 86.83824158],
+         [ 76.45271301],
+         [ 76.45271301],
+         ...,
+         [330.89819336],
+         [460.71728516],
+         [455.52456665]],
+
+        [[ 76.37138367],
+         [ 65.98072815],
+         [ 65.98072815],
+         ...,
+         [330.94268799],
+         [466.02130127],
+         [460.82595825]],
+
+        [[ 86.8814621 ],
+         [ 76.47416687],
+         [ 76.47416687],
+         ...,
+         [336.65652466],
+         [466.74771118],
+         [456.34042358]]]])]}
+
+skeleton_action_res = self.skeleton_action_predictor.predict_skeleton_with_mot(
+    skeleton_action_input)
+
+    predict_skeleton_with_mot内部
+
+    act_res = self.predict_skeleton(skeleton_list, run_benchmark, repeats=1)
+    results = list(zip(mot_id, act_res))   
+
+
+##### predict_skeleton
+###### preprocess       
+[{'window_size': 50, 'type': 'AutoPadding'}]    
+
+AutoPadding(object):      
+    """
+    Sample or Padding frame skeleton feature.   
+    Args:     
+        window_size (int): Temporal size of skeleton feature.    
+        random_pad (bool): Whether do random padding when frame length < window size. Default: False.    
+    """         
+50帧一个整体判断动作        
+
+C, T, V, M = data.shape     
+(2, 50, 17, 1)         
+
+内部不够补零完整操作
+
+    def __call__(self, results):
+        data = results
+
+        C, T, V, M = data.shape
+        T = self.get_frame_num(data)
+        if T == self.window_size:
+            data_pad = data[:, :self.window_size, :, :]
+        elif T < self.window_size:
+            begin = random.randint( #随机往两边补零，但是这里没有开启self.random_pad，所以是右边补零
+                0, self.window_size - T) if self.random_pad else 0
+            data_pad = np.zeros((C, self.window_size, V, M))
+            data_pad[:, begin:begin + T, :, :] = data[:, :T, :, :]
+        else:
+            if self.random_pad:
+                index = np.random.choice(
+                    T, self.window_size, replace=False).astype('int64')
+            else: #也没开启随机取，所以是直接截断
+                index = np.linspace(0, T, self.window_size).astype("int64")
+            data_pad = data[:, index, :, :]
+
+        return data_pad
+将input转到fluid （其实新几个版本不再使用fluid）         
+
+    for i in range(len(input_names)):
+        input_tensor = self.predictor.get_input_handle(input_names[i])
+        input_tensor.copy_from_cpu(inputs[input_names[i]])
+        (1, 2, 50, 17, 1)
+
+
+###### prediction
+此时显存2.2g        
+output_names : ['reshape2_34.tmp_0']    
+
+    for i in range(repeats):
+        self.predictor.run()
+        output_tensor = self.predictor.get_output_handle(output_names[0])
+        np_output = output_tensor.copy_to_cpu()
+        
+        shape : (1, 2)
+        [0.527242, -0.51960087]
+        两类判断      
+
+result = {'output': array([[ 0.527242  , -0.51960087]], dtype=float32)}
+
+###### postprocess
+result = self.postprocess(inputs, result)   
+inputs是前处理获得        
+
+内部：    
+
+    output_logit = result['output'][0]
+    长相array([ 0.527242  , -0.51960087], dtype=float32)
+    这个分类的输出有些奇怪，st-gcn的输出竟然不是sigmoid？？？？？      
+
+    classes = np.argpartition(output_logit, -1)[-1:]
+    仅仅是获取索引
+    算法功能：快速查找最大值，非正常排序，结合多种算法，结合了快速选择（quickselect）、堆选择（heapselect）和插入排序（insertion sort）的特点。
+    递归深度过大是切换算法,通过切换缓解最差情况
+    复杂度O(n) - O(nlogn)
+
+    classes = classes[np.argsort(-output_logit[classes])]
+    从大到小排序
+
+    scores = output_logit[classes]
+    result = {'class': classes, 'score': scores}
+
+
+skeleton_action_input ： 
+
+    skeleton_action_input['mot_id']： [1.0]
+    skeleton_action_input['skeleton']： (2, 50, 17, 1)
+skeleton_action_res：
+
+    (1.0, {'class': array([0]), 'score': array([0.527242], dtype=float32)})
+                        
+self.pipeline_res.clear('reid')   
+内部   
+
+    {'det': {}, 'mot': {'boxes': array([[1.00000000e+00, 0.00000000e+00, 9.39166427e-01, 8.00075500e+02,
+    1.05496582e+02, 1.24348267e+03, 7.63483887e+02]])}, 'attr': {}, 'kpt': {'keypoint': [...], 'bbox': [...]}, 'video_action': {}, 'skeleton_action': {1.0: {...}}, 'reid': {}, 'det_action': {}, 'cls_action': {}, 'vehicleplate': {}, 'vehicle_attr': {}, 'lanes': {}, 'vehicle_press': {}, 'vehicle_retrograde': {}}
+
+剩下的仍是写视频，可视化    
+继续迭代下一帧   
 
 
 
@@ -1014,15 +1284,20 @@ whether frame num is enough or lost tracker
 
 
 
-##### 结束输出？？？？？？？？？
-？？？？？？？？？
+
+
+
+##### 结束输出
+视频可视化     
+
+以下是st-gcn数据输入数据的准备，不涉及跟踪算法，只有检测和关键点      
 
     1) store_res: a list of image_data"
     "2) image_data: [imageid, rects, [keypoints, scores]]"
     "3) rects: list of rect [xmin, ymin, xmax, ymax]"
     "4) keypoints: 17(joint numbers)*[x, y, conf], total 51 data in list"
     "5) scores: mean of all joint conf")
-保存的数据结构
+
 
 
 
