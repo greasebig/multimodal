@@ -752,15 +752,277 @@ keypoint_threshold=0.5
 输入：检测框（现在观测），上一个状态     
 输出：在字典里面维护现在的状态，并时刻维护state变量标志是否进入st-gcn
 
-iou计算可能要     
+iou计算可能要用上一状态     
 还有维护一个 strack          
 
+mot中有一个 frame_count
+
+记录yolo后处理结果     
+self.previous_det_result = det_result    
+shape (1, 6)    
+例子[0.0, 0.88692635, 822.72125, 48.385178, 1186.757, 713.6829]       
+cls_id, score, x0, y0, x1, y1       
+同时也用作 pred_dets
+
+
+tracking_outs = self.tracking(det_result, batch_image_list)   
+online_targets = self.tracker.update(pred_dets, img原图)     
+tracker维护表   
+![alt text](assets_picture/st-gcn/1713066805712.png)    
+其中的stracks维护     
+![alt text](assets_picture/st-gcn/1713066903451.png)    
+![alt text](assets_picture/st-gcn/1713066947352.png)    
+
+update为核心算法，下面这些代码在update出来后调用结果    
+
+    for t in online_targets:
+        tlwh = t.tlwh
+        tid = t.track_id
+        tscore = t.score
+        if tlwh[2] * tlwh[3] <= self.tracker.min_box_area:
+            continue
+        online_tlwhs[0].append(tlwh)
+        online_ids[0].append(tid)
+        online_scores[0].append(tscore)
+
+    tracking_outs = {
+        'online_tlwhs': online_tlwhs,
+        'online_scores': online_scores,
+        'online_ids': online_ids,
+    }
+    return tracking_outs
+
+属于这个类的方法     
+
+    class BOTSORTTracker(object):
+        """
+        BOTSORT tracker, support single class
+
+        Args:
+            track_high_thresh (float): threshold of detection high score
+            track_low_thresh (float): threshold of remove detection score
+            new_track_thresh (float): threshold of new track score
+            match_thresh (float): iou threshold for associate
+            track_buffer (int): tracking reserved frames,default 30
+            这里会不会出问题？？？因为推理是跟踪50帧    
+            min_box_area (float): reserved min box
+            camera_motion (bool): Whether use camera motion, default False
+            cmc_method (str): camera motion method,defalut sparseOptFlow
+            frame_rate (int): fps buffer_size=int(frame_rate / 30.0 * track_buffer)
+        """
+
+##### 算法内部
+    # Remove bad detections
+    lowest_inds = scores > self.track_low_thresh
+    bboxes = bboxes[lowest_inds]
+    scores = scores[lowest_inds]
+    classes = classes[lowest_inds]
+
+    # Find high threshold detections
+    remain_inds = scores > self.track_high_thresh
+    dets = bboxes[remain_inds]
+    scores_keep = scores[remain_inds]
+    classes_keep = classes[remain_inds]
+
+跟踪算法仿佛不需要训练，没有预训练模型，只是一个先验方法，纯人工设计      
+然后去评价基准      
+
+卡尔曼滤波器
+
+    def multi_predict(self, mean, covariance):
+        """
+        Run Kalman filter prediction step (Vectorized version).
+        
+        Args:
+            mean (ndarray): The Nx8 dimensional mean matrix of the object states
+                at the previous time step.
+            covariance (ndarray): The Nx8x8 dimensional covariance matrics of the
+                object states at the previous time step.
+
+        Returns:
+            The mean vector and covariance matrix of the predicted state.
+            Unobserved velocities are initialized to 0 mean.
+        """
+仿佛采样器的设计，纯手工      
+很奇妙   
+    # Predict the current location with KF
+    STrack.multi_predict(strack_pool, self.kalman_filter)
+
+上一轨迹信息     
+![alt text](assets_picture/st-gcn/1713108692855.png)    
+![alt text](assets_picture/st-gcn/1713108783041.png)     
 
 
 
+    # Fix camera motion
+    这里竟然被关闭了？
+    if self.camera_motion:
+        warp = self.gmc.apply(img[0], dets)
+        STrack.multi_gmc(strack_pool, warp)
+        STrack.multi_gmc(unconfirmed, warp)
+
+    # Associate with high score detection boxes
+    ious_dists = matching.iou_distance(strack_pool, detections)
+    cost矩阵
+    matches, u_track, u_detection = matching.linear_assignment(
+        ious_dists, thresh=self.match_thresh)
+    匈牙利
+    内部是 return matches, unmatched_a, unmatched_b
+
+每次track到，update
+
+    self.mean, self.covariance = self.kalman_filter.update(
+        self.mean, self.covariance, self.tlwh_to_xyah(new_tlwh))
+
+    def update(self, mean, covariance, measurement):
+        """
+        Run Kalman filter correction step.
+
+        Args:
+            mean (ndarray): The predicted state's mean vector (8 dimensional).
+            covariance (ndarray): The state's covariance matrix (8x8 dimensional).
+            measurement (ndarray): The 4 dimensional measurement vector
+                (x, y, a, h), where (x, y) is the center position, a the aspect
+                ratio, and h the height of the bounding box.
+
+        Returns:
+            The measurement-corrected state distribution.
+        """
+
+    其他状态也要更新
+    self.state = TrackState.Tracked  # set flag 'tracked'
+    self.is_activated = True  # set flag 'activated'
+    self.score = new_track.score
+
+二次匹配   
+
+    ''' Step 3: Second association, with low score detection boxes'''
+    if len(scores):
+    实际是取容忍范围内的低分检测框
+    但是根本不可能？？？
+    因为检测置信度设置在0.5
+    所以这套算法把botsort的相机补偿，bytetrack的二次匹配都给删除了，所以更快？？？？？
+        inds_high = scores < self.track_high_thresh（0.3）
+        inds_low = scores > self.track_low_thresh（0.2）
+        inds_second = np.logical_and(inds_low, inds_high)
+        dets_second = bboxes[inds_second]
+        scores_second = scores[inds_second]
+        classes_second = classes[inds_second]
+
+    # association the untrack to the low score detections
+    if len(dets_second) > 0:
+        '''Detections'''
+        detections_second = [
+            STrack(STrack.tlbr_to_tlwh(tlbr), s, c) for (tlbr, s, c) in
+            zip(dets_second, scores_second, classes_second)
+        ]
+    else:
+        detections_second = []
+    r_tracked_stracks = [
+        strack_pool[i] for i in u_track
+        if strack_pool[i].state == TrackState.Tracked
+    ]
+    dists = matching.iou_distance(r_tracked_stracks, detections_second)
+    matches, u_track, u_detection_second = matching.linear_assignment(
+        dists, thresh=0.5)
+
+    相比第一次匹配:
+    第一次匹配阈值0.7且可调节，第二次0.5固定
+    多出以下（类似第三次匹配，对不可信轨迹反复确认，匹配阈值固定0.7）
+        for it in u_track:
+            track = r_tracked_stracks[it]
+            if not track.state == TrackState.Lost:
+                track.mark_lost()
+                lost_stracks.append(track)
+        '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
+        detections = [detections[i] for i in u_detection]
+        dists = matching.iou_distance(unconfirmed, detections)
+
+        matches, u_unconfirmed, u_detection = matching.linear_assignment(
+            dists, thresh=0.7)
+        for itracked, idet in matches:
+            unconfirmed[itracked].update(detections[idet], self.frame_id)
+            activated_starcks.append(unconfirmed[itracked])
+        for it in u_unconfirmed:
+            track = unconfirmed[it]
+            track.mark_removed()
+            removed_stracks.append(track)
+
+unconfirmed来源
+
+    for track in self.tracked_stracks:
+        if not track.is_activated:
+            unconfirmed.append(track)
+        else:
+            tracked_stracks.append(track)
+
+""" Step 4: Init new stracks"""     
+
+    for inew in u_detection:
+        track = detections[inew]
+        if track.score < self.new_track_thresh:（0.4）
+            continue
+
+        track.activate(self.kalman_filter, self.frame_id)
+        activated_starcks.append(track)
+
+""" Step 5: Update state"""
+
+    for track in self.lost_stracks:
+        if self.frame_id - track.end_frame > self.max_time_lost:
+            track.mark_removed()
+            removed_stracks.append(track)
+lost_stracks，u_unconfirmed都进入removed_stracks       
 
 
+""" Merge """
 
+
+    self.tracked_stracks = [
+        t for t in self.tracked_stracks if t.state == TrackState.Tracked
+    ]
+    self.tracked_stracks = joint_stracks(self.tracked_stracks,
+        activated_starcks)
+    self.tracked_stracks = joint_stracks(self.tracked_stracks,
+        refind_stracks)
+    self.lost_stracks = sub_stracks(self.lost_stracks, self.tracked_stracks)
+    self.lost_stracks.extend(lost_stracks)
+    self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
+    self.removed_stracks.extend(removed_stracks)
+    self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(
+        self.tracked_stracks, self.lost_stracks)
+
+    # output_stracks = [track for track in self.tracked_stracks if track.is_activated]
+    output_stracks = [track for track in self.tracked_stracks]
+
+    return output_stracks
+
+refind_stracks,来源第一二次匹配。activated_starcks来源第一二三次匹配
+
+    for itracked, idet in matches:
+        track = strack_pool[itracked]
+        det = detections[idet]
+        if track.state == TrackState.Tracked:
+            track.update(detections[idet], self.frame_id)
+            activated_starcks.append(track)
+        else:
+            track.re_activate(det, self.frame_id, new_id=False)
+            refind_stracks.append(track)
+
+反复确认不可信轨迹没找到，好像就是一次性删除      
+找到      
+针对lost_track做      
+if self.frame_id - track.end_frame > self.max_time_lost:（30）     
+第三次匹配的u_unconfirmed则是一次性删除      
+
+
+至此结束
+
+跟踪的输入输出        
+输入：前面状态信息 + 本次检测 + 维护的一些变量如state标志进入st-gcn      
+输出：更新状态信息    
+
+该算法没有使用相机补偿，没有二次匹配，因为置信度和二次匹配阈值冲突     
 
 
 
@@ -788,6 +1050,26 @@ postprocess: 过滤出置信度大于0.5的保留
 
 
 跟踪    
+
+跟踪的输入输出        
+输入：前面状态信息 + 本次检测 + 维护的一些变量如state标志进入st-gcn      
+输出：更新状态信息供下次利用     
+
+具体哪些？？？？？？    
+太多了       
+self.tracked_stracks内部有置信度，检测框，均值协方差用于卡尔曼滤波            
+self.lost_stracks      
+self.removed_stracks     
+大概这些      
+
+
+
+
+该算法没有使用相机补偿，没有二次匹配，因为置信度和二次匹配阈值冲突，reid也被关闭       
+阉割版botsort        
+
+
+
 tracking_outs = self.tracking(det_result, batch_image_list)       
 输入原图以及检测框     
 
@@ -1382,7 +1664,8 @@ MOT主流范式为基于检测的跟踪 tracking-by-detection，即先检测后�
 
 
 ### BoT-SORT 2022
-BoT-SORT: Robust Associations Multi-Pedestrian Tracking  
+260hz速度    
+BoT-SORT: Robust Associations Multi-Pedestrian Tracking    
 
     YOLOX & YOLOv7 support
     Multi-class support（paddle中使用的还是单类）
@@ -1410,6 +1693,7 @@ Contributions
 方法      
 本方法基于ByteTrack，同时对此做了3方面的改进。提出了BoT-SORT 和 BoT-SORT-ReID（BoT-SORT的提升）。
 
+我们可以在任何含有不确定信息的动态系统中的使用卡尔曼滤波，对系统的下一步动作做出有根据的猜测。猜测的依据是预测值和观测值，首先我们认为预测值和观测值都符合高斯分布且包含误差，然后我们预设预测值的误差Q和观测值的误差R，然后计算得到卡尔曼增益，最后利用卡尔曼增益来综合预测值和观测值的结果，得到我们要的最优估计。通俗的说卡尔曼滤波就是将算出来的预测值和观测值综合考虑的过程。  
 
 2.1 Kalman Filter   
 一般方法中都是使用恒定速度的离散Kalman滤波模型对目标的运动进行建模。    
@@ -1432,11 +1716,50 @@ https://cloud.tencent.com/developer/article/2362129
 2.3 IoU和Re ID 融合    
 ![alt text](assets_picture/st-gcn/image-10.png)    
 
+##### BoT-SORT大致框架：（BoT-SORT是以Byte为基础改进的）      
 ![alt text](assets_picture/st-gcn/image-11.png)   
+![alt text](assets_picture/st-gcn/image-17.png)   
+多帧都匹配不上，就移除该轨迹     
+匈牙利算法匹配（即关联度量）（多项式时间内解决分配问题）（assignment）(数据关联)      
+卡尔曼滤波器预测     
+![alt text](assets_picture/st-gcn/image-18.png)   
+
+
+##### ByteTrack大致框架：（BoT-SORT是以Byte为基础改进的）      
+![alt text](assets_picture/st-gcn/image-16.png)    
+ 高亮部分为BoT-SORT改进部分     
+
+
+#### 原理再阅读
+BoT-SORT 丝滑跟踪 | 超越 DeepSORT、StrongSORT++ 和 ByteTrack        
+SORT(Simple Online and Realtime Tracking)算法是一种简单的在线实时多目标跟踪算法，主要利用卡尔曼滤波来传播目标物体到未来帧中，再通过IOU作为度量指标来建立关系，实现多目标的追踪      
+id频繁切换，只适用于遮挡少，运动稳定      
+
+跟踪通常由两个主要部分组成：     
+（1）用于预测后续时刻帧的轨迹边界框的运动模型和状态估计，最常用的方法是卡尔曼滤波。     
+（2）将新一帧检测到的目标位置和当前跟踪轨迹序列关联，当前两种常用方法分别是：      
+（a）定位目标，计算预测的轨迹边界框和检测到的目标位置之间的IoU；     
+（b）借助目标的外观模型，解决重新识别任务（Re-ID）。       
+
+![alt text](assets_picture/st-gcn/1713104232650.png)     
+![alt text](assets_picture/st-gcn/1713104282297.png)      
+
+##### 4.4Limitations       
+在高密度动态目标场景中，相机运动的预测会由于背景关键点缺失而出错；且计算相机的全局运动会很费时。   
+分离的外观跟踪器运行速度低，可以考虑将特征提取网络以联合检测-嵌入的方式合并到检测器中。   
+
+与联合跟踪器和几个无外观跟踪器相比，分离的外观跟踪器的运行速度相对较低。      
+我们仅将深度特征提取应用于高置信度检测（百度算法中没有看到特征提取？？？？？），以降低计算成本。如有必要，特征提取器网络可以以联合检测-嵌入的方式合并到检测头中。      
+
+
+
+
 
 
 
 #### 卡尔曼滤波器
+卡尔曼滤波    
+卡尔曼滤波（Kalman Filter）的全称为Optimal Recursive Data Processing Algorithms，最优化递归数据处理算法。它是一种基于递归算法的数据处理算法，所以Filter并不能很好的概括它的特点，它更像一种观测器而不是滤波器。      
 
 几个名词解释：
 
@@ -1448,24 +1771,57 @@ https://cloud.tencent.com/developer/article/2362129
 
 我们可以在任何含有不确定信息的动态系统中的使用卡尔曼滤波，对系统的下一步动作做出有根据的猜测。猜测的依据是预测值和观测值，首先我们认为预测值和观测值都符合高斯分布且包含误差，然后我们预设预测值的误差Q和观测值的误差R，然后计算得到卡尔曼增益，最后利用卡尔曼增益来综合预测值和观测值的结果，得到我们要的最优估计。通俗的说卡尔曼滤波就是将算出来的预测值和观测值综合考虑的过程。     
 
-状态预测公式，作用是根据上一轮的最优估计，计算本轮的预测值。
+1.状态预测公式，作用是根据上一轮的最优估计，计算本轮的预测值。    
+![alt text](assets_picture/st-gcn/image-21.png)   
+2.噪声协方差公式，表示不确定性在各个时刻之间的传递关系，作用是计算本轮预测值的系统噪声协方差矩阵。
+![alt text](assets_picture/st-gcn/image-22.png)    
+3.计算K卡尔曼系数，又叫卡尔曼增益。
+![alt text](assets_picture/st-gcn/image-23.png)    
+4.最优估计公式，作用是利用观测值和预测值的残差对当前预测值进行调整，用的就是加权求和的方式。
+![alt text](assets_picture/st-gcn/image-24.png)     
+5.更新过程噪声协方差矩阵，下一次迭代中2式使用。
+![alt text](assets_picture/st-gcn/image-25.png)   
 
-噪声协方差公式，表示不确定性在各个时刻之间的传递关系，作用是计算本轮预测值的系统噪声协方差矩阵。
+![alt text](assets_picture/st-gcn/1713108566783.png)
 
-计算K卡尔曼系数，又叫卡尔曼增益。
 
-最优估计公式，作用是利用观测值和预测值的残差对当前预测值进行调整，用的就是加权求和的方式。
+1. 背景知识
 
-更新过程噪声协方差矩阵，下一次迭代中2式使用。
+1.1 时间序列模型
+
+1.2. 滤波
+
+1.3. 线性动态系统 
+
+2. 卡尔曼滤波理论知识 
+
+2.1 预测
+
+2.1.1 第一条公式：状态转移
+
+2.1.2 第二条公式：协方差矩阵
+
+2.2 更新
+
+2.2.1 第三条公式：卡尔曼增益
+
+2.2.2 第四条公式：观测矩阵
+
+2.2.3 第五条公式：
+
 
 
 卡尔曼增益的推导   
 简直离谱，我不如直接去看采样器公式推导     
 或者nlp公式推导？？？          
 
-
-
-
+#### 匈牙利算法匹配
+（即关联度量）（多项式时间内解决分配问题）（assignment）(数据关联)     
+一般计算cost matrix    
+通过之前轨迹的卡尔曼滤波结果与检测结果计算（多目标）      
+度量一般是(中心点)欧式或者iou       
+![alt text](assets_picture/st-gcn/image-19.png)   
+![alt text](assets_picture/st-gcn/image-20.png)     
 
 
 # 结尾
