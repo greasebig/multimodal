@@ -812,14 +812,16 @@ update为核心算法，下面这些代码在update出来后调用结果
         """
 
 ##### 算法内部
+###### 高分框和可取框
+
     # Remove bad detections
-    lowest_inds = scores > self.track_low_thresh
+    lowest_inds = scores > self.track_low_thresh 0.2
     bboxes = bboxes[lowest_inds]
     scores = scores[lowest_inds]
     classes = classes[lowest_inds]
 
     # Find high threshold detections
-    remain_inds = scores > self.track_high_thresh
+    remain_inds = scores > self.track_high_thresh 0.3
     dets = bboxes[remain_inds]
     scores_keep = scores[remain_inds]
     classes_keep = classes[remain_inds]
@@ -894,7 +896,8 @@ update为核心算法，下面这些代码在update出来后调用结果
     self.is_activated = True  # set flag 'activated'
     self.score = new_track.score
 
-二次匹配   
+###### 二次匹配(低分框)   
+为了预防遮挡等问题，试图继续关联上未匹配轨迹
 
     ''' Step 3: Second association, with low score detection boxes'''
     if len(scores):
@@ -902,6 +905,7 @@ update为核心算法，下面这些代码在update出来后调用结果
     但是根本不可能？？？
     因为检测置信度设置在0.5
     所以这套算法把botsort的相机补偿，bytetrack的二次匹配都给删除了，所以更快？？？？？
+
         inds_high = scores < self.track_high_thresh（0.3）
         inds_low = scores > self.track_low_thresh（0.2）
         inds_second = np.logical_and(inds_low, inds_high)
@@ -955,6 +959,114 @@ unconfirmed来源
             unconfirmed.append(track)
         else:
             tracked_stracks.append(track)
+
+
+对于第一帧，没有阈值匹配的轨迹，则会进入   
+
+    matches, u_unconfirmed, u_detection = matching.linear_assignment(
+            dists, thresh=0.7)
+    for itracked, idet in matches:
+        unconfirmed[itracked].update(detections[idet], self.frame_id)
+        activated_starcks.append(unconfirmed[itracked])
+    for it in u_unconfirmed:
+        track = unconfirmed[it]
+        track.mark_removed()
+        removed_stracks.append(track)
+    """ Step 4: Init new stracks"""
+    使用u_detection
+    for inew in u_detection:
+        track = detections[inew]
+        if track.score < self.new_track_thresh:（0.4）
+            continue
+
+        track.activate(self.kalman_filter, self.frame_id)
+        activated_starcks.append(track)
+
+
+调用这个激活新轨迹，即初始化轨迹信息，状态信息
+
+    def activate(self, kalman_filter, frame_id):
+        """Start a new track"""
+        self.kalman_filter = kalman_filter
+        # update track id for the object class
+        self.track_id = self.next_id(self.cls_id)
+        人物id，内部++1，不是frame_id
+        self.mean, self.covariance = self.kalman_filter.initiate(
+            self.tlwh_to_xyah(self._tlwh))
+        更新状态参数，即均值，协方差
+        在看原理时候，状态好像是x y 高宽 
+
+        self.track_len = 0
+        self.state = TrackState.Tracked  # set flag 'tracked'
+        原本是0 ，变 1
+
+        if frame_id == 1:  # to record the first frame's detection result
+            self.is_activated = True
+        frame_id这个应该回每次新轨迹都更新为0 1，但没找到在哪里更新的          
+        激活标志，在外面使用
+
+        self.frame_id = frame_id
+        self.start_frame = frame_id
+
+
+具体来说 KalmanFilter 含有 initiate 和 update两种方法，不同情况使用   
+
+    class KalmanFilter(object):
+        """
+        A simple Kalman filter for tracking bounding boxes in image space.
+
+        The 8-dimensional state space
+
+            x, y, a, h, vx, vy, va, vh
+
+        就是这些      
+        但是这些怎么对应到均值和协方差？？？？
+
+        contains the bounding box center position (x, y), aspect ratio a, height h,
+        and their respective velocities.
+
+        Object motion follows a constant velocity model. The bounding box location
+        (x, y, a, h) is taken as direct observation of the state space (linear
+        observation model).
+
+        """
+    其中
+    def initiate(self, measurement):
+        """
+        Create track from unassociated measurement.
+
+        Args:
+            measurement (ndarray): Bounding box coordinates (x, y, a, h) with
+                center position (x, y), aspect ratio a, and height h.
+
+        Returns:
+            The mean vector (8 dimensional) and covariance matrix (8x8
+            dimensional) of the new track. Unobserved velocities are 
+            initialized to 0 mean.
+        """
+        mean_pos = measurement
+        mean_vel = np.zeros_like(mean_pos)
+        mean = np.r_[mean_pos, mean_vel]
+
+        std = [
+            2 * self._std_weight_position * measurement[3],
+            2 * self._std_weight_position * measurement[3], 1e-2,
+            2 * self._std_weight_position * measurement[3],
+            10 * self._std_weight_velocity * measurement[3],
+            10 * self._std_weight_velocity * measurement[3], 1e-5,
+            10 * self._std_weight_velocity * measurement[3]
+        ]
+        covariance = np.diag(np.square(std))
+        return mean, np.float32(covariance)
+
+    有速度 有位置        
+    self.mean, self.covariance = self.kalman_filter.initiate(
+            self.tlwh_to_xyah(self._tlwh))
+
+
+
+
+
 
 """ Step 4: Init new stracks"""     
 
@@ -1054,6 +1166,7 @@ postprocess: 过滤出置信度大于0.5的保留
 跟踪的输入输出        
 输入：前面状态信息 + 本次检测 + 维护的一些变量如state标志进入st-gcn      
 输出：更新状态信息供下次利用     
+跟踪目标id       
 
 具体哪些？？？？？？    
 太多了       
@@ -1062,12 +1175,35 @@ self.lost_stracks
 self.removed_stracks     
 大概这些      
 
+另一篇专利的写法    
+基于多目标跟踪及人体姿态序列检测的摔
+倒行为识别方法      
+
+    3.根据权利要求1所述的基于多目标跟踪及人体姿态序列检测的摔倒行为识别方法，
+    其特征在于：
+    步骤2中，以视频抽帧后时序图片集作为输入数据，经ByteTrack算法模型获取图片集
+    中每个行人检测框坐标以及人体目标。
+    4.根据权利要求1所述的基于多目标跟踪及人体姿态序列检测的摔倒行为识别方法，
+    其特征在于：
+    步骤2中，具体数据关联流程如下：
+    步骤2 .1，根据检测器得到的人体目标检测框置信度，将检测框分为分值不小于0 .5的
+    高分框和分值低于0.5的低分框；
+    步骤2.2，使用高分框与之前跟踪轨迹进行匹配；
+    步骤2.3，然后使用低分框与前一次没有匹配上的高分框跟踪轨迹进行匹配；
+    步骤2 .4，对于没有匹配上的跟踪轨迹且得分高的检测框，对其新建一个跟踪轨迹；对
+    于没有匹配上的跟踪轨迹保留30帧，在其再次出现时再进行匹配
+
+我们这个算法是0.3以上为高分框，0.3~0.2为低分框，剩下的不要        
+没有二次匹配阈值冲突      
+这个是一致的：对于没有匹配上的跟踪轨迹保留30帧   
+
+
 
 
 
 该算法没有使用相机补偿，没有二次匹配，因为置信度和二次匹配阈值冲突，reid也被关闭       
 阉割版botsort        
-
+原版botsort有三个改进点。这个算法只用了一个，八元组状态        
 
 
 tracking_outs = self.tracking(det_result, batch_image_list)       
