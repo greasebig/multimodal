@@ -854,7 +854,23 @@ update为核心算法，下面这些代码在update出来后调用结果
 ![alt text](assets_picture/st-gcn/1713108692855.png)    
 ![alt text](assets_picture/st-gcn/1713108783041.png)     
 
+###### 一次匹配 
 
+
+    ''' Add newly detected tracklets to tracked_stracks'''
+    unconfirmed = []
+    tracked_stracks = []  # type: list[STrack]
+    for track in self.tracked_stracks:
+        if not track.is_activated:
+            unconfirmed.append(track)
+        else:
+            tracked_stracks.append(track)
+    ''' Step 2: First association, with high score detection boxes'''
+    strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
+    #跟丢的 已有的 都一起加入轨迹池，做第一次匹配
+
+    # Predict the current location with KF
+    STrack.multi_predict(strack_pool, self.kalman_filter)
 
     # Fix camera motion
     这里竟然被关闭了？
@@ -862,6 +878,11 @@ update为核心算法，下面这些代码在update出来后调用结果
         warp = self.gmc.apply(img[0], dets)
         STrack.multi_gmc(strack_pool, warp)
         STrack.multi_gmc(unconfirmed, warp)
+
+
+
+
+
 
     # Associate with high score detection boxes
     ious_dists = matching.iou_distance(strack_pool, detections)
@@ -871,7 +892,7 @@ update为核心算法，下面这些代码在update出来后调用结果
     匈牙利
     内部是 return matches, unmatched_a, unmatched_b
 
-每次track到，update
+每次track到，update内部
 
     self.mean, self.covariance = self.kalman_filter.update(
         self.mean, self.covariance, self.tlwh_to_xyah(new_tlwh))
@@ -892,9 +913,30 @@ update为核心算法，下面这些代码在update出来后调用结果
         """
 
     其他状态也要更新
-    self.state = TrackState.Tracked  # set flag 'tracked'
+    self.state = TrackState.Tracked #1 初始化已有 # set flag 'tracked'
     self.is_activated = True  # set flag 'activated'
     self.score = new_track.score
+
+剩下代码
+
+    for itracked, idet in matches:
+        track = strack_pool[itracked]
+        det = detections[idet]
+        if track.state == TrackState.Tracked:
+            track.update(detections[idet], self.frame_id)
+            activated_starcks.append(track)
+        else:
+            track.re_activate(det, self.frame_id, new_id=False)
+            refind_stracks.append(track)
+
+TrackState来源  
+
+    class TrackState(object):
+        New = 0
+        Tracked = 1
+        Lost = 2
+        Removed = 3s
+
 
 ###### 二次匹配(低分框)   
 为了预防遮挡等问题，试图继续关联上未匹配轨迹
@@ -922,49 +964,90 @@ update为核心算法，下面这些代码在update出来后调用结果
         ]
     else:
         detections_second = []
+    
     r_tracked_stracks = [
         strack_pool[i] for i in u_track
-        if strack_pool[i].state == TrackState.Tracked
+        if strack_pool[i].state == TrackState.Tracked #这个好像是标记是否还在跟踪，以及是否已经放弃匹配？？？
     ]
     dists = matching.iou_distance(r_tracked_stracks, detections_second)
     matches, u_track, u_detection_second = matching.linear_assignment(
         dists, thresh=0.5)
 
-    相比第一次匹配:
-    第一次匹配阈值0.7且可调节，第二次0.5固定
-    多出以下（类似第三次匹配，对不可信轨迹反复确认，匹配阈值固定0.7）
-        for it in u_track:
-            track = r_tracked_stracks[it]
-            if not track.state == TrackState.Lost:
-                track.mark_lost()
-                lost_stracks.append(track)
-        '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
-        detections = [detections[i] for i in u_detection]
-        dists = matching.iou_distance(unconfirmed, detections)
+###### 三次匹配
+TrackState来源  
 
-        matches, u_unconfirmed, u_detection = matching.linear_assignment(
-            dists, thresh=0.7)
-        for itracked, idet in matches:
-            unconfirmed[itracked].update(detections[idet], self.frame_id)
-            activated_starcks.append(unconfirmed[itracked])
-        for it in u_unconfirmed:
-            track = unconfirmed[it]
-            track.mark_removed()
-            removed_stracks.append(track)
+    class TrackState(object):
+        New = 0
+        Tracked = 1
+        Lost = 2
+        Removed = 3
+
+
+相比第一次匹配:第一次匹配阈值0.7且可调节，第二次0.5固定多出以下
+（类似第三次匹配，对不可信轨迹反复确认，匹配阈值固定0.7）
+
+    for it in u_track:
+        track = r_tracked_stracks[it]
+        if not track.state == TrackState.Lost: # 2 初始化已有
+            track.mark_lost()
+            lost_stracks.append(track)
+    '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
+    detections = [detections[i] for i in u_detection]
+    dists = matching.iou_distance(unconfirmed, detections)
+
+    matches, u_unconfirmed, u_detection = matching.linear_assignment(
+        dists, thresh=0.7)
+    for itracked, idet in matches:
+        unconfirmed[itracked].update(detections[idet], self.frame_id)
+        activated_starcks.append(unconfirmed[itracked])
+    for it in u_unconfirmed:
+        track = unconfirmed[it]
+        track.mark_removed()
+        removed_stracks.append(track)
+matching.linear_assignment内部，
+
+    cost, x, y = lap.lapjv(cost_matrix, extend_cost=True, cost_limit=thresh) #c++底层，无法查看
+    for ix, mx in enumerate(x):
+        if mx >= 0:
+            matches.append([ix, mx])
+    unmatched_a = np.where(x < 0)[0] #一元组
+    #where函数来查找数组x中小于0的元素的索引，并将这些索引存储在unmatched_a数组中。[0]索引表示返回的是元素索引的数组，而不是元素本身。
+    unmatched_b = np.where(y < 0)[0] #一元组
+    matches = np.asarray(matches) #二元组
+    return matches, unmatched_a, unmatched_b
+
+
+    """LAP
+    ``lap`` is a linear assignment problem solver using Jonker-Volgenant
+    algorithm for dense (LAPJV) or sparse (LAPMOD) matrices.
+
+    Functions
+    ---------
+
+    lapjv
+        Find optimal (minimum-cost) assignment for a dense cost matrix.
+    lapmod
+        Find optimal (minimum-cost) assignment for a sparse cost matrix.
+    """
 
 unconfirmed来源
 
     for track in self.tracked_stracks:
         if not track.is_activated:
+            #没被激活跟踪的？？？
+            #和strack_pool[i].state == TrackState.Tracked有什么区别？？？
             unconfirmed.append(track)
         else:
             tracked_stracks.append(track)
 
 
-对于第一帧，没有阈值匹配的轨迹，则会进入   
+对于刚开始的第一帧，没有阈值匹配的轨迹，则会进入   
 
+    dists = matching.iou_distance(unconfirmed, detections)
     matches, u_unconfirmed, u_detection = matching.linear_assignment(
             dists, thresh=0.7)
+    # 匈牙利
+    #内部是 return matches, unmatched_a, unmatched_b。阈值即0.7 0.5这些，
     for itracked, idet in matches:
         unconfirmed[itracked].update(detections[idet], self.frame_id)
         activated_starcks.append(unconfirmed[itracked])
@@ -983,7 +1066,7 @@ unconfirmed来源
         activated_starcks.append(track)
 
 
-调用这个激活新轨迹，即初始化轨迹信息，状态信息
+调用这个激活activate新轨迹，即初始化轨迹信息，状态信息
 
     def activate(self, kalman_filter, frame_id):
         """Start a new track"""
