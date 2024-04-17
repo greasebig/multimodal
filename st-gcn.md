@@ -768,8 +768,26 @@ cls_id, score, x0, y0, x1, y1
 tracking_outs = self.tracking(det_result, batch_image_list)   
 online_targets = self.tracker.update(pred_dets, img原图)     
 tracker维护表   
+一些基本的参数设置         
 ![alt text](assets_picture/st-gcn/1713066805712.png)    
+
 其中的stracks维护     
+轨迹信息的表示方法是：轨迹位置和速度影响下的均值和协方差，形状分别是(1,8)，（1，8，8）     
+frame_id      
+激活情况       
+上一步的检测框      
+步骤如下：   
+先通过卡尔曼滤波更新track的均值协方差参数，其依据的只是以前的信息。      
+在计算iou时会用到上一步检测框和当前检测框     
+根据Iou结果进行关联匹配，获取哪些是匹配哪些未匹配     
+    for itracked, idet in matches:
+        track = strack_pool[itracked]
+        det = detections[idet]
+        if track.state == TrackState.Tracked:
+            track.update(detections[idet], self.frame_id)
+            activated_starcks.append(track)
+所以卡尔曼滤波器有什么作用？又不用来计算关联匹配    
+
 ![alt text](assets_picture/st-gcn/1713066903451.png)    
 ![alt text](assets_picture/st-gcn/1713066947352.png)    
 
@@ -1340,6 +1358,24 @@ def expand_crop(images, rect, expand_ratio=0.3):
 
     h_half = (ymax - ymin) * (1 + expand_ratio) / 2.
     w_half = (xmax - xmin) * (1 + expand_ratio) / 2.
+
+
+
+
+##### 跟踪总结
+输入为检测模型的结果、frame_id和已有的轨迹信息：
+轨迹信息的表示方法是：轨迹位置和速度影响下的均值和协方差，形状分别是(1,8)，（1，8，8）
+
+
+
+
+
+
+
+
+
+
+
 
 ##### 进入skeleton_action判断
 关键点检测以及st-gcn       
@@ -1947,6 +1983,50 @@ https://cloud.tencent.com/developer/article/2362129
 ##### ByteTrack大致框架：（BoT-SORT是以Byte为基础改进的）      
 ![alt text](assets_picture/st-gcn/image-16.png)    
  高亮部分为BoT-SORT改进部分     
+
+
+##### 算法实践梳理
+    # Predict the current location with KF
+    STrack.multi_predict(strack_pool, self.kalman_filter)
+实际上实在依据multi_mean，multi_covariance重新计算更新multi_mean，multi_covariance      
+即对位置 速度 重新估算     
+
+通过两步间的检测框算iou  
+
+匈牙利算法关联匹配，算出匹配与未匹配的
+
+更新轨迹信息   
+即      
+更新frame_id     
+track_len     
+通过det以及之前卡尔曼状态更新卡尔曼状态
+
+跟踪上时设置：
+
+    self.state = TrackState.Tracked  # set flag 'tracked'
+    self.is_activated = True  # set flag 'activated'
+
+    if update_feature(T) and self.use_reid（F）:
+         self.update_features(new_track.curr_feat)
+
+activated_starcks.append(track)  
+
+
+输入为检测框、frame_id和已有的轨迹信息：    
+输出为人物id和新的轨迹信息。   
+跟踪算法具体关联匹配规则如下：     
+1. 将置信度大于0.6的检测框作为高分检测框，置信度小于0.6且大于0.5的检测框作为低分检测框。   
+2. 首先将高分检测框与已有轨迹关联计算，然后将低分框与之前没有匹配上的轨迹关联计算。如果高分检测框匹配上已有轨迹，则更新已有轨迹信息。第三次匹配是专门针对首帧后没有后文的前面‘假轨迹’匹配，若‘假轨迹’还是没有配上，删除，对于没配上的检测框，开启新轨迹。如果高分检测框没有匹配上已有轨迹，则新建一个轨迹。没有匹配上的轨迹保留30帧，超出30帧仍未匹配上，则将该轨迹移出待匹配列表。          
+关联计算具体来说，先将已有轨迹信息由卡尔曼滤波器计算状态，状态的表示为均值和协方差，代表八元组数据，里面有矩阵视角的加速同步计算，关联结算的度量是iou匹配，准确说是单纯计算iou结果保存，然后使用匈牙利算法加速匹配关联过程，即得出哪些是匹配上的，没匹配上的，      
+更新信息
+
+一般方法中都是使用恒定速度的离散Kalman滤波模型对目标的运动进行建模。    
+![alt text](assets_picture/st-gcn/image-6.png)    
+说实话这个公式量已经不亚于去读各种采样器原理        
+通常采用SORT中恒速先验的卡尔曼滤波建模目标运动，其状态向量是7元组，但是实验中发现对边界框宽高的估计会比宽高比的估计更好，所以改成了8元组状态向量      
+![alt text](assets_picture/st-gcn/image-13.png)     
+
+八元组即 四个位置信息 四个相应的速度（斜率）     
 
 
 #### 原理再阅读
