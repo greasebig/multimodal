@@ -51,7 +51,7 @@ SD训练论文和训练过程
 我觉得起源在于cfg的引入，宣誓负向词的引入，以前是没有负向词控制的概念的。   
 同时cfg在终端也可以设置成负值，就是负向词的效果     
 
-
+The "negative prompt" is just a by-product of the classifier-free guidance, where it original was only an empty prompt, it was later discovered that here you could put anything you don't want the network to generate.
 
 
 
@@ -129,8 +129,52 @@ Typing past standard 75 tokens that Stable Diffusion usually accepts increases p
 
 For example, a prompt with 120 tokens would be separated into two chunks: first with 75 tokens, second with 45. Both would be padded to 75 tokens and extended with start/end tokens to 77. After passing those two chunks though CLIP, we'll have two tensors with shape of (1, 77, 768). Concatenating those results in (1, 154, 768) tensor that is then passed to Unet without issue.
 
-为什么放进unet会没有问题    
+为什么放进unet会没有问题？    
 unet交叉注意力计算文本信息也会使用线性映射，维度已经不一样了    
+
+源代码里也是经典的层层warp          
+代码本身就是层层嵌套，堆栈比diffusers深太多     
+
+
+找到这个，但是是控制文本变换的。没找到怎么处理长文本      
+
+    # a prompt like this: "fantasy landscape with a [mountain:lake:0.25] and [an oak:a christmas tree:0.75][ in foreground::0.6][: in background:0.25] [shoddy:masterful:0.5]"
+    # will be represented with prompt_schedule like this (assuming steps=100):
+    # [25, 'fantasy landscape with a mountain and an oak in foreground shoddy']
+    # [50, 'fantasy landscape with a lake and an oak in foreground in background shoddy']
+    # [60, 'fantasy landscape with a lake and an oak in foreground in background masterful']
+    # [75, 'fantasy landscape with a lake and an oak in background masterful']
+    # [100, 'fantasy landscape with a lake and a christmas tree in background masterful']
+
+    def get_learned_conditioning_prompt_schedules(prompts, base_steps, hires_steps=None, use_old_scheduling=False):
+    """
+
+
+Composable Diffusion
+
+A method to allow the combination of multiple prompts. combine prompts using an uppercase AND
+a cat AND a dog
+
+Supports weights for prompts: a cat :1.2 AND a dog AND a penguin :2.2 The default weight value is 1. It can be quite useful for combining multiple embeddings to your result: creature_embedding in the woods:0.7 AND arcane_embedding:0.5 AND glitch_embedding:0.2
+Using a value lower than 0.1 will barely have an effect. a cat AND a dog:0.03 will produce basically the same output as a cat
+This could be handy for generating fine-tuned recursive variations, by continuing to append more prompts to your total. creature_embedding on log AND frog:0.13 AND yellow eyes:0.08
+
+
+没找到在哪里执行clip转换token        
+以及截断token        
+只看到转换成cond直接就是已经clip后2048维度的向量      
+
+
+感觉还是跳不进去断电       
+卡在外沿       
+
+
+
+
+
+
+
+
 
 
 
