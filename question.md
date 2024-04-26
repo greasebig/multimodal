@@ -31,14 +31,154 @@ lora在unet每一层都加吗？设置不同层采用有什么区别？？？
 locon的resnet具体怎么改成rank相关   
 timpstep正余弦编码到底是什么    
 sd原论文如何训练sd      
+<<<<<<< HEAD
       
 
+=======
+最关键的问题：别人已经有很好的训练模型了，你为什么不拿别人开源的微调，还要自己重头训练。直接拿别人的自己还干啥，别人的已经够好了，不用吃饭了    
+各种漏洞，有商业化的吗      
+为什么webUI可以支持超长文本输入     
+webUI如何做cfg    
+dreambooth先验保留要多少张图片   
+SD训练论文和训练过程    
+分类器引导和无分类器引导是什么，起源是什么，和yolo的有锚无锚点选择演进过程有什么区别      
+>>>>>>> 58cc333df437e7bc7a4b9c1b9ca7d47f812b7e0b
 
 
 
 
 
 对backbone,卷积核感受野的改进，压缩加速部署。对检测头的设计，对loss的设计，对神经网络框架的设计，对优化器的设计，对生成网络的设计，是否太多？           
+
+
+## 分类器引导和无分类器引导是什么，起源是什么，和yolo的有锚无锚点选择演进过程有什么区别   
+我觉得起源在于cfg的引入，宣誓负向词的引入，以前是没有负向词控制的概念的。   
+同时cfg在终端也可以设置成负值，就是负向词的效果     
+
+The "negative prompt" is just a by-product of the classifier-free guidance, where it original was only an empty prompt, it was later discovered that here you could put anything you don't want the network to generate.
+
+
+
+## webUI如何做cfg    
+Stable Diffusion Web UI 将 CFG 限制为正数，最小值为 1，最大值为 30。但是，如果您通过终端使用 Stable Diffusion，则可以将 CFG 设置为高达 999，也可以设置其为负值。负 CFG 意味着您希望稳定扩散生成与文本提示相反的内容。然而，这并不是一种常见的做法，因为使用否定文本提示会给您带来更可预测的结果，更有可能代表您想要的内容。
+
+色彩饱和度随着 CFG 的增加而增加   
+对比度随着 CFG 的增加而增加   
+高于某个 CFG 值时，输出图像会变得更加模糊，导致细节丢失    
+
+为了抵消较高 CFG 值时输出图像质量的下降，您通常可以执行以下两项操作：
+
+增加采样器步数：一般经验法则是，采样器步数越多，输出图像的细节就越多，尽管与 CFG 一样，该规则仅适用于特定阈值。请记住，更多的采样器步骤通常会导致更长的处理时间。    
+更改采样器方法：一些采样器是专门为在较低或较高的 CFG 和采样步骤下最佳运行而开发的。例如，UniPC 可以在 CFG 低至 3 时返回良好的结果，但通常会在 CFG 为 10 左右时看到质量下降。另一方面，DPM++ SDE Karras 通常在 CFG 值大于 7 时产生大量图像细节。   
+
+### webui内部代码    
+vscode调试需要将配置文件justMyCode=false     
+配置文件在debug界面模块找到后改     
+才能看到大框架下线程调用的模型采样    
+
+去噪模型model被装饰      
+原先采样是采用ddmpp_2m     
+主装饰是CompVisDenoiser     
+副装饰是CFGDenoiserKDiffusion    
+![alt text](assets/question/image.png)     
+
+    class CFGDenoiser(torch.nn.Module):
+        """
+        Classifier free guidance denoiser. A wrapper for stable diffusion model (specifically for unet)
+        that can take a noisy picture and produce a noise-free picture using two guidances (prompts)
+        instead of one. Originally, the second prompt is just an empty string, but we use non-empty
+        negative prompt.
+        """
+
+
+    forward 
+
+    if sd_samplers_common.apply_refiner(self):
+        cond = self.sampler.sampler_extra_args['cond']
+        uncond = self.sampler.sampler_extra_args['uncond']
+
+    conds_list, tensor = prompt_parser.reconstruct_multicond_batch(cond, self.step)
+    uncond = prompt_parser.reconstruct_cond_batch(uncond, self.step)
+
+    tensor = denoiser_params.text_cond
+    uncond = denoiser_params.text_uncond
+
+    if tensor.shape[1] == uncond.shape[1] or skip_uncond:
+        if is_edit_model:
+            cond_in = catenate_conds([tensor, uncond, uncond])
+        elif skip_uncond:
+            cond_in = tensor
+        else: 执行这个
+            cond_in = catenate_conds([tensor, uncond])
+
+        if shared.opts.batch_cond_uncond:
+            x_out = self.inner_model(x_in, sigma_in, cond=make_condition_dict(cond_in, image_cond_in))
+
+
+    if skip_uncond: 不执行
+        fake_uncond = torch.cat([x_out[i:i+1] for i in denoised_image_indexes])
+        x_out = torch.cat([x_out, fake_uncond])  # we skipped uncond denoising, so we put cond-denoised image to where the uncond-denoised image should be
+
+    denoised = self.combine_denoised(x_out, conds_list, uncond, cond_scale)
+
+我觉得和diffusers的差不多    
+
+
+
+
+
+
+## 为什么webUI可以支持超长文本输入
+Typing past standard 75 tokens that Stable Diffusion usually accepts increases prompt size limit from 75 to 150. Typing past that increases prompt size further. This is done by breaking the prompt into chunks of 75 tokens, processing each independently using CLIP's Transformers neural network, and then concatenating the result before feeding into the next component of stable diffusion, the Unet.
+
+For example, a prompt with 120 tokens would be separated into two chunks: first with 75 tokens, second with 45. Both would be padded to 75 tokens and extended with start/end tokens to 77. After passing those two chunks though CLIP, we'll have two tensors with shape of (1, 77, 768). Concatenating those results in (1, 154, 768) tensor that is then passed to Unet without issue.
+
+为什么放进unet会没有问题？    
+unet交叉注意力计算文本信息也会使用线性映射，维度已经不一样了    
+
+源代码里也是经典的层层warp          
+代码本身就是层层嵌套，堆栈比diffusers深太多     
+
+
+找到这个，但是是控制文本变换的。没找到怎么处理长文本      
+
+    # a prompt like this: "fantasy landscape with a [mountain:lake:0.25] and [an oak:a christmas tree:0.75][ in foreground::0.6][: in background:0.25] [shoddy:masterful:0.5]"
+    # will be represented with prompt_schedule like this (assuming steps=100):
+    # [25, 'fantasy landscape with a mountain and an oak in foreground shoddy']
+    # [50, 'fantasy landscape with a lake and an oak in foreground in background shoddy']
+    # [60, 'fantasy landscape with a lake and an oak in foreground in background masterful']
+    # [75, 'fantasy landscape with a lake and an oak in background masterful']
+    # [100, 'fantasy landscape with a lake and a christmas tree in background masterful']
+
+    def get_learned_conditioning_prompt_schedules(prompts, base_steps, hires_steps=None, use_old_scheduling=False):
+    """
+
+
+Composable Diffusion
+
+A method to allow the combination of multiple prompts. combine prompts using an uppercase AND
+a cat AND a dog
+
+Supports weights for prompts: a cat :1.2 AND a dog AND a penguin :2.2 The default weight value is 1. It can be quite useful for combining multiple embeddings to your result: creature_embedding in the woods:0.7 AND arcane_embedding:0.5 AND glitch_embedding:0.2
+Using a value lower than 0.1 will barely have an effect. a cat AND a dog:0.03 will produce basically the same output as a cat
+This could be handy for generating fine-tuned recursive variations, by continuing to append more prompts to your total. creature_embedding on log AND frog:0.13 AND yellow eyes:0.08
+
+
+没找到在哪里执行clip转换token        
+以及截断token        
+只看到转换成cond直接就是已经clip后2048维度的向量      
+
+
+感觉还是跳不进去断电       
+卡在外沿       
+
+
+
+
+
+
+
+
 
 
 
