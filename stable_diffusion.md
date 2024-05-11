@@ -3996,18 +3996,105 @@ SD3还引入了灵活的文本编码器，通过在推理阶段移除内存密�
 
 
 
-
-
-
-
-
-
 它从 Air Street Capital筹集了种子轮投资，在2023年3月以未披露的金额出售给Stability AI。当时，Clipdrop表示其拥有超过1500万用户。但在不到一年后，Stability AI就将它卖给了美国AI辅助写作初创公司Jasper。
 
 有观点指出，Stability AI急着发布SD3，或许就是为了盖过Clipdrop被收购的消息。Stability AI面临的困境和很多AI创业公司一样，正在以惊人的速度“烧钱”，却没有明确的盈利途径，还要时刻面临被OpenAI等高级玩家“降维打击”的威胁。去年年底，Stability AI还传出过CEO可能会被投资者罢免的消息，公司本身或许也在寻求被收购的机会。在这样的情境下，Stability AI迫切需要提振投资者的信  
 
 莫斯塔克在X平台上感慨“奥特曼（OpenAI的创始人兼CEO）真是一个魔术师”，并称Sora可以被视为AI视频的GPT3，将在未来几年内得到扩展、细化、调整和优化。  
 
+
+### 再阅读
+#### 长文本生成
+以前版本的主要弱点之一是文本生成。稳定扩散 1.5 在这方面非常糟糕。 SDXL 稍好一点，但仍然难以写出多个单词 - 而且经常出错。    
+最近，Stability AI 创建的另一个模型 Stable Cascade 已经显示出有趣的改进。但它仍然非常随机。而且长句子是不可能得到的。   
+![alt text](assets/stable_diffusion/image-2.png)     
+![alt text](assets/stable_diffusion/image-3.png)     
+但随着 Stable Diffusion 3 的出现，这种情况将会改变，它 改进了拼写和文本的一致性。对于编写标题和创建徽标等任务来说，它将更加可靠。    
+Stability AI 及其团队分享的示例包括大量带有一个或多个渲染出色的文本的图像 - 包括比简单单词更长的文本！
+
+
+####  复杂的指令和提示
+SDXL 和 Stable Cascade 的弱点之一是它们不像 DALL·E 3 那样遵循复杂的指令和提示。   
+DALL·E 3 的创新之一是在训练模型时使用非常精确的图像说明，以教会它​​遵循复杂的提示。如今，Stability AI 似乎受到了这种方法的启发，改进了稳定扩散。   
+因此，在以下说明中，Stable Diffusion 3 应至少与 DALLE 3 一样好。   
+
+![alt text](assets/stable_diffusion/image-4.png)    
+提示：蓝色立方体顶部红色球体的照片。他们后面是一个绿色的三角形，右边是狗，左边是猫
+
+
+
+#### 新架构
+
+Stable Diffusion 3.0 使用 基于Diffusion Transformers 的架构。这是与稳定扩散 1 和 2 相比的显着变化，稳定扩散 1 和 2 使用基于稳定扩散 1 和 2 中使用的 U-Net 的架构。
+
+
+此外，新架构的目标是通过分离图像和语言表示的权重，同时确保两者之间的连贯联系来实现多模态。    
+![alt text](assets/stable_diffusion/image-5.png)   
+SD3 的核心是多模态扩散变换器 (MMDiT) 架构，它将图像和语言表示的权重分开，从而提高文本理解和拼写能力。
+
+
+
+SD3 的另一个发展在于其使用整流通量 (RF) 采样。这项创新实现了更直接的推理路径，减少了生成图像所需的步骤数，同时保持或提高了性能。
+
+
+### 三个文本编码器
+
+Stable Diffusion 1 使用单个文本编码器 (CLIP)。    
+随后，Stable Diffusion XL 通过使用两个编码器（CLIP 和 OpenCLIP）进行了创新。   
+Stable Diffusion 3 更进一步，将使用最多三个编码器：CLIP L/14 (OpenAI)、OpenCLIP bigG/14 和 T5-v1.1-XXL。然而，第三个（T5）相当大，可以先验删除，而不会影响不理解文本的几代人的质量。
+
+提示：半透明的猪，里面是一只较小的猪     
+![alt text](assets/stable_diffusion/image-6.png)      
+了解内部的概念
+
+
+2. 平衡马   
+提示：一匹马在绿草如茵、背景是一座山的田野里的一个彩色球上保持平衡。    
+![alt text](assets/stable_diffusion/image-7.png)     
+具有精确的位置或颜色
+
+
+3.形状和颜色    
+提示：蓝色立方体顶部红色球体的照片。他们后面是一个绿色的三角形，右边是狗，左边是猫    
+![alt text](assets/stable_diffusion/image-8.png)
+
+
+
+提示：木桌上有三个透明玻璃瓶。左边的有红色液体，数字1。中间的有蓝色液体，数字2。右边的有绿色液体，数字3。
+![alt text](assets/stable_diffusion/image-9.png)
+
+
+
+
+更像是教幼儿园小孩一些基础概念    
+同时又已经具备成人无法拥有的能力    
+
+
+
+提示：用衣服写的“SD3”文字   
+提示：一只穿着带有“ Lykon ”标志的连帽衫的小狗木偶。狗木偶位于桌子上的笔记本电脑前    
+
+Prompt: A beautiful painting of flowing colors and styles forming the words “The SD3 research paper is here!”, the background is speckled with drops and splashes of paint.
+
+
+Promp : Epic anime artwork of a wizard atop a mountain at night casting a cosmic spell into the dark sky that says "Stable Diffusion 3" made out of colorful energy
+
+
+5. 两个不同的文本
+
+Prompt : Photo of an 90's desktop computer on a work desk, on the computer screen it says "welcome". On the wall in the background we see beautiful graffiti with the text "SD3" very large on the wall.
+
+Stable Diffusion 3 可以明显地理解包含两个不同文本的图像描述。然而，这对于DALL·E 3来说是遥不可及的。
+
+结论    
+正如其声誉一样，DALL·E 3 在尊重复杂提示和文本生成方面已经非常出色。迄今为止，它仍然是在图像中生成文本的最佳模型之一 - 特别是对于这两个评估标准。    
+因此，尽管它的访问受到限制（只能通过付费订阅 ChatGPT 获得）并且功能有限（无法直接访问提示、无法修复或高级控制 Controlnet 类型等），但它仍然是一个有趣的解决方案。    
+但随着 Stable Diffusion 3 的到来，这些优势可能不再足够。事实证明，后者在尊重提示方面与 DALL·E 3 一样好，甚至更好。而且它更擅长向图像添加文本。而如果它能够提供与其前辈相同的灵活性和相同的高级功能，毫无疑问，Stable Diffusion 3 将战胜 DALL·E——除非 OpenAI 也为我们准备了惊喜……
+
+## DALL·E 3 
+最显着的进步在于它能够生成忠实于给定指令的图像。通过集成由优化语言模型开发的高度描述性字幕，它们显着提高了 DALL·E 3 与请求相关的准确性。
+
+ChatGPT
 
 
 
