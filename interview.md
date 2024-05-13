@@ -48,7 +48,8 @@ num_keys = len(dict)
 
 
 
-
-
+# 面试一般要求
+![alt text](assets/interview/image.png)
+![alt text](assets/interview/image-1.png)
 
 
