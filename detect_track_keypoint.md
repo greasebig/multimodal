@@ -108,22 +108,22 @@ CVPR2020中的文章ATSS揭露到anchor-based和anchor-free的目标检测算法
         g = 0.5  # bias
         # 上下左右4个网格
         off = torch.tensor([[0, 0],
-                            [1, 0], [0, 1], [-1, 0], [0, -1],  # j,k,l,m
-                          ], device=targets.device).float() * g  # offsets
+            [1, 0], [0, 1], [-1, 0], [0, -1],  # j,k,l,m
+          ], device=targets.device).float() * g  # offsets
       # 处理每个检测层（3个）
         for i in range(self.nl):
         '''
         tensor([[[ 1.25000,  1.62500],  #10,13, 16,30, 33,23 每一个数除以8
-                [ 2.00000,  3.75000],
-                [ 4.12500,  2.87500]],
+              [ 2.00000,  3.75000],
+              [ 4.12500,  2.87500]],
 
-                [[ 1.87500,  3.81250], #30,61, 62,45, 59,119 每一个数除以16
-                [ 3.87500,  2.81250],
-                [ 3.68750,  7.43750]],
+              [[ 1.87500,  3.81250], #30,61, 62,45, 59,119 每一个数除以16
+              [ 3.87500,  2.81250],
+              [ 3.68750,  7.43750]],
 
-                [[ 3.62500,  2.81250], #116,90, 156,198, 373,326 每一个数除以32
-                [ 4.87500,  6.18750],
-                [11.65625, 10.18750]]])
+              [[ 3.62500,  2.81250], #116,90, 156,198, 373,326 每一个数除以32
+              [ 4.87500,  6.18750],
+              [11.65625, 10.18750]]])
         '''
             # 3个anchors，已经除以当前特征图对应的stride
             anchors = self.anchors[i]
@@ -1840,6 +1840,94 @@ PPYOLOE+表示在object365中进行了预训练（其模型结构配置文件与
 
 
 ### yolov5_based_on_transformer
+
+
+
+
+
+## yolov10
+[Submitted on 23 May 2024]    
+YOLOv10: Real-Time End-to-End Object Detection
+
+https://arxiv.org/abs/2405.14458
+
+在过去的几年中，YOLO 因其在计算成本和检测性能之间的有效平衡而成为实时物体检测领域的主导范式。研究人员已经探索了 YOLO 的架构设计、优化目标、数据增强策略等，取得了显著进展。然而，对非最大抑制 (NMS) 进行后处理的依赖阻碍了 YOLO 的端到端部署，并对推理延迟产生不利影响。此外，YOLO 中各个组件的设计缺乏全面彻底的检查，导致明显的计算冗余并限制了模型的能力。它导致效率不理想，同时具有相当大的性能改进潜力。在这项工作中，我们旨在从后处理和模型架构两个方面进一步推进 YOLO 的性能效率边界。为此，`我们首先提出了用于 YOLO 无 NMS 训练的一致对偶分配，这同时带来了具有竞争力的性能和较低的推理延迟`。此外，我们`引入了整体效率-准确度驱动的 YOLO 模型设计策略`。我们从效率和准确度的角度全面优化了 YOLO 的各个组件，`大大降低了计算开销并提高了性能`。我们的努力成果是新一代用于实时端到端物体检测的 YOLO 系列，称为 YOLOv10。大量实验表明，YOLOv10 在各种模型规模上都实现了最先进的性能和效率。例如，我们的 YOLOv10-S 为 1.8×在 COCO 上相似的 AP 下比 RT-DETR-R18 更快，同时享受 2.8×参数和 FLOP 数量更少。与 YOLOv9-C 相比，在相同性能下，YOLOv10-B 的延迟减少了 46%，参数减少了 25%。
+
+https://github.com/THU-MIG/yolov10
+
+![alt text](assets/detect_track_keypoint/image.png)
+
+
+UPDATES 🔥
+
+  2024/05/29: Add the gradio demo for running the models locally. Thanks to AK!
+  2024/05/27: Thanks to sujanshresstha for the integration with DeepSORT!
+  2024/05/27: We have updated the checkpoints with other attributes, like class names, for ease of use.
+  2024/05/26: Thanks to CVHub520 for the integration into X-AnyLabeling!
+  2024/05/26: Thanks to DanielSarmiento04 for integrate in c++ | ONNX | OPENCV!
+  2024/05/25: Add Transformers.js demo and onnx weights(yolov10n/s/m/b/l/x). Thanks to xenova!
+  2024/05/25: Add colab demo, HuggingFace Demo, and HuggingFace Model Page. Thanks to SkalskiP and kadirnar!
+
+
+
+
+
+
+### X-AnyLabeling
+https://github.com/CVHub520/X-AnyLabeling
+
+借助 Segment Anything 和其他优秀模型的 AI 支持，轻松进行数据标记。
+
+
+    2024年5月：
+    支持YOLOv10模型。
+    🤗 发布最新版本2.3.6 🤗
+    2024 年 3 月：
+    发布版本2.3.5。
+    2024 年 2 月：
+    发布版本2.3.4。
+    启用标签显示功能。
+    发布版本2.3.3。
+    ✨✨✨支持YOLO-World模型。
+    发布版本2.3.2。
+    支持YOLOv9模型。
+    支持从水平边界框到旋转边界框的转换。
+    支持标签删除、标签重命名，更多详细信息请参考文档。
+    支持快速标签更正；请参阅本文档获取指导。
+    发布版本2.3.1。
+    2024 年 1 月：
+    👏👏👏 结合 CLIP 和 SAM 模型以增强语义和空间理解。示例可在此处找到。
+    🔥🔥🔥在深度估计任务中添加对Depth Anything模型的支持。
+    发布版本2.3.0。
+    支持YOLOv8-OBB模型。
+    支持RTMDet和RTMO模型。
+    发布基于YOLOv5的中国车牌检测识别模型。
+
+
+X-AnyLabeling脱颖而出，成为一款强大的注释工具，无缝集成了 AI 推理引擎和一系列复杂功能。它专为实际应用量身定制，致力于为图像数据工程师提供全面的工业级解决方案。该工具擅长在各种复杂的任务中快速自动执行注释。
+
+    🔥 亮点⏏️
+    🗝️主要特点
+    支持使用推理加速GPU。
+    处理两者image和video处理。
+    允许所有任务进行单帧和批量预测。
+    方便模型定制，支持二次开发设计。
+    支持COCO、VOC、YOLO、DOTA、MOT、MASK等主流标签格式一键导入导出。
+    涵盖一系列视觉任务，包括classification、、、、、、、和。detectionsegmentationcaptionrotationtrackingestimationocr
+    支持多种图像注释样式，包括polygons、rectangles、rotated boxes、circles、lines，points以及text detection、recognition、 和 的注释KIE。
+
+
+![alt text](assets/detect_track_keypoint/image-1.png)
+
+
+![alt text](assets/detect_track_keypoint/image-2.png)
+
+
+The code base is built with ultralytics and RT-DETR.
+
+Thanks for the great implementations!
+
+
 
 
 
