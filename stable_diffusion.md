@@ -4091,6 +4091,60 @@ Stable Diffusion 3 可以明显地理解包含两个不同文本的图像描述�
 因此，尽管它的访问受到限制（只能通过付费订阅 ChatGPT 获得）并且功能有限（无法直接访问提示、无法修复或高级控制 Controlnet 类型等），但它仍然是一个有趣的解决方案。    
 但随着 Stable Diffusion 3 的到来，这些优势可能不再足够。事实证明，后者在尊重提示方面与 DALL·E 3 一样好，甚至更好。而且它更擅长向图像添加文本。而如果它能够提供与其前辈相同的灵活性和相同的高级功能，毫无疑问，Stable Diffusion 3 将战胜 DALL·E——除非 OpenAI 也为我们准备了惊喜……
 
+
+
+### 6.12 sd3开源前夕    
+comfyui直接更新支持sd3    
+
+VAE（变分自编码器）非常特别，因为它让提供了16个通道的特征和颜色数据供我们使用，而之前的模型只有4个通道。
+
+下面的四张图显示出，这将产生多大的影响。
+
+![alt text](assets/stable_diffusion/image-10.png)
+
+每个模块都可能对细节文字产生影响
+
+这也就意味着，模型在训练时会捕获更多细节。
+
+不仅模型的质量会更好，而且实际上会带来更快的训练速度，从而使主要的MMDiT模型（也就是实现生成的主要模型）能够更好地捕捉细节。
+
+与旧的模型相比，新的16通道VAE在512x512分辨率下的表现，可以说令人难以置信——即使在较小的图像尺寸下，通道维度上的特征数量也足以捕捉到很好的细节。
+
+VHS和DVD都是标准定义的480i/480p，但DVD显然捕捉到了更多细节，甚至在硬件和软件的升频器上表现也很好。    
+![alt text](assets/stable_diffusion/image-11.png)
+
+
+
+![alt text](assets/stable_diffusion/image-12.png)
+
+如今在谷歌Scholar上，关于Stable Diffusion的论文已经有7500多篇了。
+
+微调方法、ControlNet、适配器、分段方法等理论，在SD上应该会比从前的架构表现得更好。
+
+
+分段方法 这个一直不太理解
+
+![alt text](assets/stable_diffusion/image-13.png)
+
+![alt text](assets/stable_diffusion/image-14.png)
+
+
+研究者提出了一种全新的架构，称为——MMDiT（多模态Diffusion Transformer），专为处理这种多模态的能力。
+
+与此同时，还采用了一个自编码模型来编码图像token。
+
+![alt text](assets/stable_diffusion/image-15.png)
+
+
+因为文本和图像嵌入在概念上有很大不同，下图右中可以看出，研究者对两种模态使用了两种不同的权重。
+
+
+
+
+
+
+
+
 ## DALL·E 3 
 最显着的进步在于它能够生成忠实于给定指令的图像。通过集成由优化语言模型开发的高度描述性字幕，它们显着提高了 DALL·E 3 与请求相关的准确性。
 
