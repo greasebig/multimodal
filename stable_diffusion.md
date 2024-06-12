@@ -4095,6 +4095,9 @@ Stable Diffusion 3 可以明显地理解包含两个不同文本的图像描述�
 
 ### 6.12 sd3开源前夕    
 comfyui直接更新支持sd3    
+主要是原本就有api接口      
+sd3开源也包含了workflow      
+因为sd3就是用comfyui测试       
 
 VAE（变分自编码器）非常特别，因为它让提供了16个通道的特征和颜色数据供我们使用，而之前的模型只有4个通道。
 
@@ -4137,6 +4140,20 @@ VHS和DVD都是标准定义的480i/480p，但DVD显然捕捉到了更多细节�
 
 
 因为文本和图像嵌入在概念上有很大不同，下图右中可以看出，研究者对两种模态使用了两种不同的权重。
+
+
+
+Training Dataset       
+We used synthetic data and filtered publicly available data to train our models. The model was pre-trained on 1 billion images. The fine-tuning data includes 30M high-quality aesthetic images focused on specific visual content and style, as well as 3M preference data images.
+
+
+
+https://huggingface.co/stabilityai/stable-diffusion-3-medium
+
+
+
+
+
 
 
 
