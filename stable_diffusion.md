@@ -3238,7 +3238,7 @@ torch.Size([4, 52, 768])
 由linear(320,1280),silu,linear(1280,1280)  
 emb=torch.Size([4, 1280])   
 
-#### 4.2 开始unet
+#### 4.2 开始unet down
 conv_in增加通道数到320   
 ![Alt text](assets_picture/stable_diffusion/image-2.png)    
 ```

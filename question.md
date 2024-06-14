@@ -105,6 +105,13 @@ The "negative prompt" is just a by-product of the classifier-free guidance, wher
 
 
 ## webUI如何做cfg    
+
+noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)     
+
+训练的时候随机 drop 掉 condition
+
+
+
 Stable Diffusion Web UI 将 CFG 限制为正数，最小值为 1，最大值为 30。但是，如果您通过终端使用 Stable Diffusion，则可以将 CFG 设置为高达 999，也可以设置其为负值。负 CFG 意味着您希望稳定扩散生成与文本提示相反的内容。然而，这并不是一种常见的做法，因为使用否定文本提示会给您带来更可预测的结果，更有可能代表您想要的内容。
 
 色彩饱和度随着 CFG 的增加而增加   
@@ -174,12 +181,56 @@ vscode调试需要将配置文件justMyCode=false
 
 
 ## 为什么webUI可以支持超长文本输入
-Typing past standard 75 tokens that Stable Diffusion usually accepts increases prompt size limit from 75 to 150. Typing past that increases prompt size further. This is done by breaking the prompt into chunks of 75 tokens, processing each independently using CLIP's Transformers neural network, and then concatenating the result before feeding into the next component of stable diffusion, the Unet.
+Typing past standard 75 tokens that Stable Diffusion usually accepts increases prompt size limit from 75 to 150. Typing past that increases prompt size further. This is done by `breaking the prompt into chunks of 75 tokens`, `processing each independently using CLIP's Transformers neural network`, and `then concatenating the result before feeding into` the next component of stable diffusion, the `Unet`.
 
-For example, a prompt with 120 tokens would be separated into two chunks: first with 75 tokens, second with 45. Both would be padded to 75 tokens and extended with start/end tokens to 77. After passing those two chunks though CLIP, we'll have two tensors with shape of (1, 77, 768). Concatenating those results in (1, 154, 768) tensor that is then passed to Unet without issue.
+For example, a prompt with 120 tokens would be separated into two chunks: `first with 75 tokens, second with 45`. `Both would be padded to 75 tokens and extended with start/end tokens to 77`. `After passing those two chunks though CLIP`, we'll `have two tensors with shape of (1, 77, 768)`. `Concatenating those results in (1, 154, 768) tensor` that is `then passed to Unet without issue.`
 
 为什么放进unet会没有问题？    
 unet交叉注意力计算文本信息也会使用线性映射，维度已经不一样了    
+
+这个是作为cc    
+推理过程是    
+
+DiffusionWrapper
+
+def forward(self, x, t, c_concat: list = None, c_crossattn: list = None, c_adm=None):
+
+    elif self.conditioning_key == 'hybrid':
+        xc = torch.cat([x] + c_concat, dim=1)
+        cc = torch.cat(c_crossattn, 1)
+        out = self.diffusion_model(xc, t, context=cc)
+
+x torch.Size([2, 4, 64, 64])    
+c_concat torch.Size([2, 5, 64, 64])
+
+c_crossattn torch.Size([2, 77, 768])
+
+这里仅仅是传入      
+
+然后进到网络里面是在 crossattn 使用
+
+    - attn2 加入文本信息encoder_hidden_states  
+    residual,残差3  
+    不做prepare-attn-mask   
+    toq,torch.Size([4, 4096, 320])变torch.Size([4, 4096, 320])   
+    `文本信息encoder_hidden_states做tok,tov， torch.Size([4, 52, 768])变torch.Size([4, 52, 320])`     
+    8个头，qkv做head_to_batch_dim：Reshape the tensor from `[batch_size, seq_len, dim]` to `[batch_size, seq_len, heads, dim // heads]` `heads` is
+          the number of heads initialized while constructing the `Attention` class.   
+    torch.Size([4, 4096, 320])变torch.Size([32, 4096, 40])   
+    `kv torch.Size([4, 52, 320])变torch.Size([32, 52, 40])`
+    计算score:`torch.Size([32, 4096, 52])`   
+    计算qkv结果，即selfattn结果torch.Size([32, 4096, 40])  
+    batch_to_head_dim：torch.Size([4, 4096, 320])  
+    linear,drop(0)  
+    加残差3  
+
+52吗？ 不是77？
+
+72这一维度只在中间类似矩阵计算，设计计算复杂度问题    
+但在输入输出都不影响到网络层
+
+
+
 
 源代码里也是经典的层层warp          
 代码本身就是层层嵌套，堆栈比diffusers深太多     
@@ -214,7 +265,7 @@ This could be handy for generating fine-tuned recursive variations, by continuin
 只看到转换成cond直接就是已经clip后2048维度的向量      
 
 
-感觉还是跳不进去断电       
+感觉还是跳不进去断点     
 卡在外沿       
 
 
