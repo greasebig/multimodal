@@ -299,7 +299,29 @@ This could be handy for generating fine-tuned recursive variations, by continuin
 
 （），句子首尾权重是不是clip训练出来的机制呢？？？？       
 猜测，就是clip训练的结果      
-但是怎么训练，能让()代表权重1.1, 怎么设置图文匹对关系？？？？        
+但是怎么训练，能让()代表权重1.1, 怎么设置图文匹对关系？？？？      
+
+
+### webui如何实现
+具体我没有去看过在哪里做的模板匹配      
+
+然后应该是直接划成独立一个token     
+对clip后对应的embedding向量做乘法，相当于直接放大       
+这样直接放大为什么能有效？     
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ### tokenize
 整个tokenizer并没有涉及到prompt权重的问题
