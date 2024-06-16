@@ -303,23 +303,38 @@ This could be handy for generating fine-tuned recursive variations, by continuin
 
 
 ### webui如何实现
-具体我没有去看过在哪里做的模板匹配      
+具体我没有去看过在哪里做的模板匹配    
+具体的没看过        
 
 然后应该是直接划成独立一个token     
 对clip后对应的embedding向量做乘法，相当于直接放大       
 这样直接放大为什么能有效？     
 
 
+![alt text](assets_picture/question/image-62.png)
+
+Using () in the prompt increases the model's attention to enclosed words, and [] decreases it. You can combine multiple modifiers:
 
 
+a (word) - increase attention to by a factor of 1.1word
+
+attn 就是说之所以有效是因为，文本时作用在transformers的第二个attn      
+计算qkv的时候相应起到把相应权重增加的效果     
 
 
+`a \(word\)` - use literal characters in prompt()
+
+With (), a weight can be specified like this: (text:1.4). If the weight is not specified, it is assumed to be 1.1. Specifying weight only works with () not with [].
+
+On 2022-09-29, a new implementation was added that supports escape characters and numerical weights. A downside of the new implementation is that the old one was not perfect and sometimes ate characters: "a (((farm))), daytime", for example, would become "a farm daytime" without the comma. This behavior is not shared by the new implementation which preserves all text correctly, and this means that your saved seeds may produce different pictures. For now, there is an option in settings to use the old implementation.
 
 
+NAI uses my implementation from before 2022-09-29, except they have 1.05 as the multiplier and use {} instead of (). So the conversion applies:
 
-
-
-
+    their {word} = our (word:1.05)
+    their {{word}} = our (word:1.1025)
+    their [word] = our (word:0.952) (0.952 = 1/1.05)
+    their [[word]] = our (word:0.907) (0.907 = 1/1.05/1.05)
 
 
 
