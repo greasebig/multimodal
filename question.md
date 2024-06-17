@@ -103,6 +103,11 @@ LoRA α采用模型G作为底模，可以预见它将在血缘关系较近的模
 The "negative prompt" is just a by-product of the classifier-free guidance, where it original was only an empty prompt, it was later discovered that here you could put anything you don't want the network to generate.
 
 
+为什么都说cfg= 1时，neg不起作用，好像不是一个东西     
+
+
+
+
 
 ## webUI如何做cfg    
 
