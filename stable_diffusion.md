@@ -2450,6 +2450,110 @@ light sea green circle with red background"
 
 
 
+##### cn 1.1
+ControlNet 1.1 具有与 ControlNet 1.0 完全相同的体系结构。
+
+我们承诺在 ControlNet 1.5 之前不会更改神经网络架构（至少，希望我们永远不会更改网络架构）。也许这是 ControlNet 1.1 中最好的消息。
+
+ControlNet 1.1 包括所有以前的模型，具有改进的鲁棒性和结果质量。添加了几个新模型。
+
+
+ControlNet 1.1 包括 14 个型号（11 个生产就绪型号和 3 个实验型号）：
+
+    control_v11p_sd15_canny
+    control_v11p_sd15_mlsd
+    control_v11f1p_sd15_depth
+    control_v11p_sd15_normalbae
+    control_v11p_sd15_seg
+    control_v11p_sd15_inpaint
+    control_v11p_sd15_lineart
+    control_v11p_sd15s2_lineart_anime
+    control_v11p_sd15_openpose
+    control_v11p_sd15_scribble
+    control_v11p_sd15_softedge
+    control_v11e_sd15_shuffle
+    control_v11e_sd15_ip2p
+    control_v11f1e_sd15_tile
+
+
+您可以从我们的 HuggingFace 模型页面下载所有这些模型。所有这些模型都应放在“模型”文件夹中。
+
+您需要下载 Stable Diffusion 1.5 模型“v1-5-pruned.ckpt”并将其放入文件夹“models”中。
+
+我们的 python 代码将自动下载其他注释器模型，如 HED 和 OpenPose。不过，如果您想手动下载这些，您可以从此处下载所有其他注释器模型。所有这些模型都应放在文件夹“annotator/ckpts”中。
+
+
+ControlNet 1.1 includes all previous models with improved robustness and result quality. Several new models are added.
+
+https://huggingface.co/lllyasviel/ControlNet-v1-1/tree/main
+
+模型挺多但不再更新
+
+
+##### 官方训练
+
+除了标准之外，我们还提供了您需要了解的两个重要参数“sd_locked”和“only_mid_control”。
+
+only_mid_control
+默认情况下，only_mid_control 为 False。当它为 True 时，您将训练以下体系结构。
+
+![alt text](assets_picture/stable_diffusion/image-223.png)
+
+当您的计算能力有限并希望加快训练速度时，或者当您想要促进“全局”上下文学习时，这可能会有所帮助。请注意，有时您可以暂停训练，将其设置为 True，恢复训练，然后再次暂停，然后再次设置，然后再次恢复。
+
+如果你的计算设备很好，也许你不需要这个。但我也知道有些艺术家愿意在他们的笔记本电脑上训练一个模型一个月——在这种情况下，也许这个选项会很有用。
+
+sd_locked
+默认情况下，sd_locked 为 True。当它为 False 时，您将训练以下体系结构。
+
+
+![alt text](assets_picture/stable_diffusion/image-224.png)
+
+
+
+这将解锁 SD 中的一些图层，您将将它们作为一个整体进行训练。
+
+这个选项很危险！如果您的数据集不够好，这可能会降低 SD 模型的能力。
+
+但是，当您在具有特定样式的图像上进行训练时，或者当您使用特殊数据集（例如具有 X 射线图像的医学数据集或具有大量 Google 地图的地理数据集）进行训练时，此选项也非常有用。您可以将其理解为同时训练 ControlNet 和 DreamBooth 之类的东西。
+
+此外，如果您的数据集很大，您可能希望在解锁这些层的情况下以几千步结束训练。这通常会稍微改善“特定于问题”的解决方案。您可以自己尝试一下，感受一下不同之处。
+
+此外，如果您解锁一些原始图层，您可能需要较低的学习率，例如 2e-6。
+
+他竟然把实验都做完了 有卡有数据 都尝试了     
+
+
+Because that "sudden converge" always happens, lets say "sudden converge" will happen at 3k step and our money can optimize 90k step, then we have two options: (1) train 3k steps, sudden converge, then train 87k steps. (2) 30x gradient accumulation, train 3k steps (90k real computation steps), then sudden converge.
+
+In my experiments, (2) is usually better than (1). However, in real cases, perhaps you may need to balance the steps before and after the "sudden converge" on your own to find a balance. The training after "sudden converge" is also important.
+
+
+但通常，如果您的逻辑批大小已经大于 256，那么进一步扩展批大小就没有多大意义。在这种情况下，也许更好的主意是训练更多的步骤。我尝试了一些 64 或 96 或 128 的“常见”逻辑批大小（通过梯度累积），似乎许多复杂的条件已经可以很好地解决。
+
+
+
+自动注释
+我们提供 gradio 示例，以获得与我们的预训练生产就绪模型一致的注释。
+
+只需运行
+
+python gradio_annotator.py
+由于每个人组织数据集的习惯都不同，因此我们不会硬编码任何用于批处理的脚本。但是“gradio_annotator.py”是以一种超级可读的方式编写的，修改它以注释您的图像应该很容易。
+
+
+
+cn 竟然还是使用ldm写的 训练方式可能也是ldm 自建了一个cldm        
+对于diffusers，其主要麻烦点在于将文件划分       
+但是现在很多新的技巧一般都采用diffusers实现       
+diffusers竟然不做超过77token的techinics
+
+
+
+
+
+
+
 
 
 #### T2I-Adapter
