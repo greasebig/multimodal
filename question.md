@@ -2070,5 +2070,29 @@ SpatialTransformer模块输入为文本向量和上一步ResBlock的输出，
 
 
 
+# 找寻
+![alt text](assets_picture/question/image-63.png)
+
+
+自己好像就是在找寻这种强光下有树荫的宁静房子
+
+似乎一直在追忆这种感觉 尤其是小的自己 就更有感觉 对象更大 似乎更加自由
+
+![alt text](assets_picture/question/image-64.png)
+
+这个更像是成年时期的回忆
+
+![alt text](assets_picture/question/image-65.png)
+
+这个也一般般 顶级还是前面
+
+确实 视频生成能让前面的树叶 影子动起来 再搭配鸟叫  背景音乐 也不错
+
+
+
+
+
+
+
 
 # 结尾
