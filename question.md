@@ -31,7 +31,11 @@ lora在unet每一层都加吗？设置不同层采用有什么区别？？？
 locon的resnet具体怎么改成rank相关   
 timpstep正余弦编码到底是什么    
 sd原论文如何训练sd      
-lora泛化性      
+lora泛化性   
+分桶后sync batch的gap如何弥补         
+
+
+
 
 最关键的问题：别人已经有很好的训练模型了，你为什么不拿别人开源的微调，还要自己重头训练。直接拿别人的自己还干啥，别人的已经够好了，不用吃饭了    
 各种漏洞，有商业化的吗      
@@ -46,6 +50,283 @@ SD训练论文和训练过程
 
 
 对backbone,卷积核感受野的改进，压缩加速部署。对检测头的设计，对loss的设计，对神经网络框架的设计，对优化器的设计，对生成网络的设计，是否太多？           
+
+
+
+
+## 分桶后sync batch的gap如何弥补 
+
+
+
+
+
+### 背景
+ SDXL为解决crop导致的问题,在训练中,将crop参数作为控制条件输入到模型。 2.3 多纵横比 旧版本的数据都是按1:1来训练的,但真是世界中存在各种纵横比的图像,如4:3,9:16等。
+
+效果超越MJ v5.2，SDXL的生图模型来了——Playground v2.5
+
+目前市面上生图模型主要有两种，一种是以 DALL·E 3 和 Midjourney为首的闭源模型，一种是以 Stable Diffusion 和 Playground v2 为首的开源模型。而 Playground v2.5 则相对于目前这些模型在增强颜色和对比度，改进跨多方面比的生成，以及改进以人为中心的细节等三个方面有显著改进
+
+### Playground v2.5
+还是采用的SDXL的框架，主要从下面三个方面做了优化：
+
+1、增强色彩和对比度
+
+自SD1.5发布以来，潜在扩散模型一直在努力生成具有高颜色对比度和活跃的颜色范围的图像，SDXL也没能解决，不能生成纯黑或者纯白的图片。主要问题是因为SD中的信噪比过大，即使噪声加到最大。虽然SDXL在训练的最后阶段采用了添加偏移噪声的策略，但SDXL仍然表现出柔和的颜色和对比度。Playground v2.5 采用一种叫EDM的框架来处理。主要有两点优势，一是采用类似零终端信噪比策略，以确保最后的去噪步骤是纯高斯噪声，这消除了 SDXL 框架对偏移噪声的需要并修复了柔和的颜色。二是采用了一种第一性原理的方法来设计训练和采样过程，以及对UNet的预处理。这使得EDM的作者能够做出清晰的设计选择，从而导致更好的图像质量和更快的模型收敛。
+
+Playground v2.5 同时还采用了一种方式是，在高分辨率图像上进行训练时，将噪声表向整体噪声较大的方向倾斜。作用也是为了降低信噪比。
+
+
+![alt text](assets_picture/question/image-66.png)
+
+
+2、改进跨多高宽比的生成
+
+生成不同高宽比的图像的能力是非常重要的，对多高宽比的图像生成效果都不理想。其实 SDXL 主框架 Unet 还是由卷积神经网络 CNN 来实现的，由于 CNN 有平移不变性的特点，按说不应该受到训练样本的影响，但是受限于训练样本大都是长宽相等的样本的原因，扩散模型还是不能推广到其他的长宽比。顺便提一嘴，字节最近也发布了一篇文章，也是针对多尺寸图片效果增强，感兴趣可以阅读下，链接：https://arxiv.org/pdf/2403.02084.pdf。
+
+
+SDXL 采用了分桶策略，将具有相似纵横比的图像在同一个前向传递中分桶在一起，并且还添加了额外的条件来指定源图像和目标图像的大小。但是桶的比例不平衡，即数据集的大部分图像都是正方形。
+
+Playground v2.5 精心设计了数据管道，以确保在各种纵横比上采用更平衡的分桶采样策略，也就是调整了数据集帮助模型不偏向于这样或那样的比例。
+
+![alt text](assets_picture/question/image-67.png)
+
+
+
+
+3、改进以人为中心的细节
+
+人对于手、脸和躯干等人体特征的畸形比较敏感，开源模型SD这类错误比较多，尤其是手部，但是MJ就比较少。所以模型应该要更加关注这部分。Playground v2.5 做了人类偏好对齐的处理，采用了 LLMs中常用的策略SFT对齐策略，用于使模型与人类偏好对齐并减少错误。Playground v2.5 开发了一套人机交互的系统，通过实际用户评分自动从多个来源整理高质量的数据集。然后，采用迭代的人机交互训练方法来选择最佳的候选数据集。这种对齐策略针对 SDXL 优势在于：
+
+面部细节、清晰度和活力
+眼睛形状和凝视
+头发纹理
+整体照明、色彩、饱和度和景深
+
+
+### sdxl
+
+
+旧版本的数据都是按1:1来训练的，但真是世界中存在各种纵横比的图像，如4:3，9:16等。最常见的做法是将图像数据按一定的宽高分桶训练。实际上，在SDXL出现之前，很多其他的模型或训练方法中，已经在使用了。
+
+
+SDXL的分桶示例如下图：
+
+![alt text](assets_picture/question/image-68.png)
+
+纵横比、crop和图像尺寸都作为控制参数，在训练中，综合控制图像的生成。
+
+2.2 微条件控制
+根据crop参数调节模型，模型在训练时，一般会crop到固定尺寸（如512x512），以前版本中，crop容易把物体的主体破坏。不同版本的crop效果如图所示：
+
+![alt text](assets_picture/question/image-69.png)
+
+SDXL为解决crop导致的问题，在训练中，将crop参数作为控制条件输入到模型。
+
+使用了几个简单但是非常有效的训练技巧，包括图像尺寸条件化策略，图像裁剪参数条件化以及多尺度训练等
+
+
+
+
+1.2 VEA
+SDXL的autoencoder依然采用KL-f8，但是并没有采用之前的autoencoder，而是基于同样的架构采用了更大的batch size（256 vs 9）重新训练，同时对模型的参数采用了EMA（指数移动平均），从而改善生成图片的局部和高频细节。重新训练的VAE模型相比之前的模型，其重建性能有一定的提升，下图展示了在COCO2017验证集上的测试结果。PNSR和SSIM指标越大越好，LPIPS和FID指标越小越好，具体可参考文章[1][2]。
+
+
+![alt text](assets_picture/question/image-70.png)
+
+
+上表中的三个VAE模型其实模型结构是完全一样，其中SD-VAE 2.x只是在SD-VAE 1.x的基础上重新微调了decoder部分，但是encoder权重是相同的，所以两者的latent分布是一样的，两个VAE模型是都可以用在SD 1.x和SD 2.x上的。但是SDXL-VAE是完全重新训练的，它的latent分布发生了改变，不可以将SDXL-VAE应用在SD 1.x和SD 2.x上。在将latent送入扩散模型之前，我们要对latent进行缩放来使得latent的标准差尽量为1，由于权重发生了改变，所以SDXL-VAE的缩放系数也和之前不同，之前的版本采用的缩放系数为0.18215，而SDXL-VAE的缩放系数为0.13025。
+
+
+SDXL的网络宽度（channels）相比之前的版本并没有改变，3个stage的特征channels分别是320、640和1280。
+
+SDXL参数量的增加主要是使用了更多的transformer blocks，在之前的版本，每个包含attention的block只使用一个transformer block（self-attention -> cross-attention -> ffn），但是SDXL中stage2和stage3的两个CrossAttnDownBlock2D模块中的transformer block数量分别设置为2和10，并且中间的MidBlock2DCrossAttn的transformer blocks数量也设置为10。
+
+
+
+采用了更大的UNet，如1.1章节中的表可以看到，之前版本的SD Unet 参数量为860M，而SDXL参数量达到了2.6B，大约是其的3倍。
+
+
+
+此外，SDXL还提取了OpenCLIP ViT-bigG的 pooled text embedding（用于CLIP对比学习所使用的特征），将其映射到time embedding的维度并与之相加
+
+
+1.5.1 图像尺寸参数条件
+Stable Diffusion 1.x/2.x 的训练过程中，主要分成两个阶段，先在256x256的图像尺寸上进行预训练，然后在512x512的图像尺寸上继续训练。这两个阶段的训练过程都要对图像最小尺寸进行约束。第一阶段中，会将尺寸小于256x256的图像舍弃；在第二阶段，会将尺寸小于512x512的图像舍弃。这样会导致训练数据中的大量数据被丢弃，数据利用率不高，而且很可能导致模型性能和泛化性的降低。
+
+
+上述问题，一般思路是借助超分模型将尺寸过小的图像放大。但是超分模型可能会在对图像超分的同时会引入一些噪声伪影，影响模型的训练，导致生成一些模糊的图像。
+
+
+
+Stable Diffusion XL为了在解决数据集利用率问题的同时不引入噪声伪影，将U-Net（Base）模型与原始图像分辨率相关联
+
+
+
+核心思想是将输入图像的原始高度和宽度  c_size = (h_ori, w_ori)
+ 作为额外的条件嵌入U-Net模型中，height和width分别都用傅里叶特征编码，然后将特征concat后加在Time Embedding上，将图像尺寸引入训练过程，这样模型在训练过程中能够学习到图像的原始分辨率信息。在推理阶段，用户可以通过 c_size
+ 参数设置期望的分辨率，从而更好地适应不同尺寸的图像生成。
+
+
+
+![alt text](assets_picture/question/image-71.png)
+
+
+为了定量分析图像尺寸条件化的效果，作者在ImageNet上基于类别条件训练和验证LDM。作者分别训练了三个模型，其效果如下图所示：
+
+CIN-512 only：丢弃最小边小于512的所有图片，这导致最终训练集只有70K
+CIN-nocond：使用了所有的训练样本，但是训练时没有加图像尺寸条件
+CIN-size-cond：使用所有图片，并在训练时使用了图像尺寸条件
+
+
+
+![alt text](assets_picture/question/image-72.png)
+
+
+作者认为CIN-512-only 的差表现主要是因为模型在小数据集上过拟合了，而CIN-nocond效果没有CIN-size-cond的好是因为其生成的模糊图片造成了相似度更低。
+
+
+1.5.2 图像裁剪参数条件
+生成式模型中典型的预处理方式是先调整图像尺寸，使得最短边与目标尺寸匹配，然后再沿较长边对图像进行随机裁剪或者中心裁剪。虽然裁剪是一种数据增强方法，但是训练中对图像裁剪导致的图像特征丢失，可能会导致模型在图像生成阶段出现不符合训练数据分布的特征.
+
+
+如下图所示，在SD1.x/2.x中会存在生成图像不完整的情况，比如生成的猫的头被裁剪了，并没有生成一个完整的猫。这很大可能就是在训练过程中数据预处理阶段的随机裁剪造成的。
+
+
+
+NovelAI在之前就发现了这个问题（NovelAI Aspect Ratio Bucketing Source Code Release），并提出了基于分桶（Ratio Bucketing）的多尺度训练策略，其主要思想是先将训练数据集按照不同的长宽比（aspect ratio）进行分桶（buckets）。在训练过程中，每次在buckets中随机选择一个bucket并从中采样Batch个数据进行训练。将数据集进行分桶可以大量减少裁剪图像的操作，并且能让模型学习多尺度的生成能力；但相对应的，预处理成本大大增加。
+
+
+Stable Diffusion XL使用了一种简单而有效的条件化方法，即图像裁剪参数条件化策略。其主要思想是在加载数据时，将左上角的裁剪坐标 
+ 通过傅里叶编码，并与原始图像尺寸一起作为额外的条件嵌入U-Net模型，从而在训练过程中让模型学习到对图像裁剪的认识。在推理时，我们只需要将这个坐标 
+ 设置为(0, 0)就可以得到物体居中的图像。?????????
+
+ 因为左上角裁剪位置不再 0 0 那就大多是结构不完整的
+
+下图展示了采用不同的crop坐标的生成图像对比，可以看到(0, 0)坐标可以生成物体居中而无缺失的图像，通过调整坐标 
+ 可以让模型生成对应裁剪的图像
+
+![alt text](assets_picture/question/image-73.png)
+
+SDXL在训练过程中，可以将两种条件注入（size and crop conditioning）结合在一起使用。在结合一起使用时，首先在通道维度将两者特征向量连接，然后加到Time Embedding上。两个条件结合使用的伪代码如下图所示。
+
+![alt text](assets_picture/question/image-74.png)
+
+
+
+
+1.5.3 多尺度训练
+现实数据集中包含不同宽高比的图像，然而文生图模型输出一般都是512x512或者1024x1024，作者认为这并不是一个好的结果，因为不同宽高比的图像有广泛的应用场景，比如（16：9）。基于以上原因，作为对模型进行了多尺度图像微调。
+
+经过预训练之后，作者借鉴NovelAI所提出的方案 NovelAI Aspect Ratio Bucketing，将数据集中图像按照不同的长宽比划分到不同的buckets上（按照最近邻原则），SDXL所设置的buckets如下表所示，虽然不同的bucket的aspect ratio不同，但是像素总数(宽x高)都接近1024x1024，相邻的bucket其height或者width相差64个pixels。
+
+
+![alt text](assets_picture/question/image-75.png)
+
+
+在训练过程中，每个step可以在不同的buckets之间切换，每个batch的数据都是从相同的bucket中采样得到。
+
+就是说可能会重复采样 桶内数量均衡问题          
+
+
+在多尺度训练中，SDXL也将bucket size  c_ar= （h_tgt,w_tgt）
+（即target size）作为条件加入UNet中，这个条件注入方式和之前图像原始尺寸条件注入一样。将target size作为条件，其实是让模型能够显示地学习到多尺度（或aspect ratio）。 
+
+
+
+在多尺度微调阶段，SDXL依然采用前面所说的size and crop conditioning，虽然crop conditioning和多尺度微调是互补方案，但是这里也依然保持这个条件注入。经过多尺度微调后，SDXL就可以生成不同aspect ratio的图像，SDXL默认生成1024x1024的图像。
+
+
+SD 1.x采用的text encoder是123M的OpenAI CLIP ViT-L/14，SD 2.x将text encoder升级为354M的OpenCLIP ViT-H/14，SDXL不仅采用了更大的OpenCLIP ViT-bigG（参数量为694M），而且同时也用了OpenAI CLIP ViT-L/14，分别提取两个text encoder的倒数第二层特征，其中OpenCLIP ViT-bigG的特征维度为1280，而CLIP ViT-L/14的特征维度是768，两个特征concat在一起总的特征维度大小是2048，这也就是SDXL的context dim。
+
+此外，SDXL还提取了OpenCLIP ViT-bigG的 pooled text embedding（用于CLIP对比学习所使用的特征），将其映射到time embedding的维度并与之相加
+
+SDXL总共增加了4个额外的条件注入到UNet，它们分别是pooled text embedding，original size，crop top-left coord和target size（bucket size）。对于后面三个条件，它们可以像timestep一样采用傅立叶编码得到特征，然后我们这些特征和pooled text embedding拼接在一起，最终得到维度为2816（1280+25623）的特征。我们将这个特征采用两个线性层映射到和time embedding一样的维度，然后加在time embedding上即可，具体的实现代码如下所示
+
+
+
+1.6 refiner
+作者发现通过上述方式训练得到的LDM有时候生成的图片局部细节较差，如下图所示，左边是未使用refiner模型产出结果，右边是级联了refiner模型产出结果。
+
+
+
+refiner model是和base model采用同样VAE的一个latent diffusion model，但是它只在使用较低的noise level进行训练（即只在前200 timesteps上）。在推理阶段，首先用base model生成latent，然后我们给这个latent加一定的噪音（采用扩散过程），并使用refiner model进行去噪，并且输入和base model相同的prompt。增加级联后的模型结构如下图所示。
+
+
+refiner model和base model在结构上有一定的不同，其UNet的结构如下图所示，refiner model采用4个stage，第一个stage采用没有attention的DownBlock2D，网络的特征维度采用384，而base model是320。另外，refiner model的attention模块中transformer block数量均设置为4。refiner model的参数量为2.3B，略小于base model。refiner model的text encoder只使用了OpenCLIP ViT-bigG，也是提取倒数第二层特征以及pooled text embed。
+
+
+![alt text](assets_picture/question/image-76.png)
+
+
+![alt text](assets_picture/question/image-77.png)
+
+
+总的来说训练SDXL是一个多阶段过程。
+
+首先在内部数据集上对base模型进行预训练：使用255x256分辨率的图像，batch size设置成2048，训练60万个step，这里同时使用了上文所述的size和crop conditioning。
+在512 x 512 分辨率的图像上继续训练20万step
+最后在图像总分辨率约为1024x1024的图片上进行多尺度训练，这里训练同时使用了noise-offset技巧
+
+
+
+
+1.8 noise-offset
+章节1.7中的第三点中提到使用了noise-offset技巧，这里简单介绍介绍下整个技巧： 如果试图让 Stable Diffusion 生成\特别暗或特别亮的图像，它几乎总是生成平均亮度值相对接近0.5的图像（全黑图像为0，全白图像为1），
+
+之所以会出现这个问题，是因为训练和测试过程的不一样，SD所使用的 noise scheduler其实在最后一步并没有将图像完全变成随机噪音，这使得训练过程中学习是有偏的，但是测试过程中，我们是从一个随机噪音开始生成的，这种不一致就会出现一定的问题。offset-noise方法就是在训练过程中给采用的噪音加上一定的offset即可，具体的实现代码如下所示：
+
+    # Sample noise that we'll add to the latents
+    noise = torch.randn_like(latents)
+    if args.noise_offset:
+        # https://www.crosslabs.org//blog/diffusion-with-offset-noise
+        noise += args.noise_offset * torch.randn((latents.shape[0], latents.shape[1], 1, 1), device=latents.device
+    )
+
+
+    生成复杂结构的物体（如人手）仍然不够好。作者认为出现这样的原因可能是手在每个图片中的（姿势等）差异都比较大，这很难让模型学习到真实3D知识
+    模型生成的图像还是无法达到完美的逼真度，如微妙的灯光效果或微小的纹理变化等
+    该模型的训练过程严重依赖于大规模数据集，这可能会无意中引入社会和种族偏见
+    在样本包含多个对象或主题的情况下，模型可能会出现一种称为“概念混淆（concept bleeding）”的现象（即不同视觉元素的合并或重叠）。如下图，输入prompt为A portrait photo of a kangaroo wearing an orange hoodie and blue sunglasses standing on the grass in front of the Sydney Opera House holding a sign on the chest that says "SDXL"!，可见第三幅图出现了橙色的眼镜，这里是和橙色的外套弄混淆了
+
+
+
+作者认为这个问题主要原因在于预训练的文本编码器：首先text-encoder训练时将所有信息压缩到一个token里，导致属性和物品无法正确对应，其次训练时用的对比损失也会导致整个问题的发生，因为要模型正确区分这种对应关系需要不同的属性、物品对应关系的负样本出现在一个batch里，这显然很难。
+
+生成清晰且比较长的文字仍然比较困难，生成的文本可能包含随机字符，如下图所示，输入prompt为：a green sign that says "very deep learning" and is at the edge of the Grand Canyon
+
+
+
+另外一个变化是SDXL只用了3个stage，这意味着只进行了两次2x下采样，而之前的SD使用4个stage，包含3个2x下采样。  
+SDXL的网络宽度（这里的网络宽度是指的是特征channels）相比之前的版本并没有改变，3个stage的特征channels分别是320、640和1280。  
+
+SDXL参数量的增加主要是使用了更多的transformer blocks，在之前的版本，每个包含attention的block只使用一个transformer block（self-attention -> cross-attention -> ffn），但是SDXL中stage2和stage3的两个CrossAttnDownBlock2D模块中的transformer block数量分别设置为2和10，并且中间的MidBlock2DCrossAttn的transformer blocks数量也设置为10（和最后一个stage保持一样）。可以看到SDXL的UNet在空间维度最小的特征上使用数量较多的transformer block，这是计算效率最高的。
+
+![Alt text](assets_picture/stable_diffusion/image-26.png)  
+
+### sd3
+![alt text](assets/stable_diffusion/image-12.png)
+
+
+与此同时，还采用了一个自编码模型来编码图像token。
+
+![alt text](assets/stable_diffusion/image-15.png)
+
+
+因为文本和图像嵌入在概念上有很大不同，下图右中可以看出，研究者对两种模态使用了两种不同的权重。
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
