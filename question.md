@@ -241,6 +241,10 @@ SD 1.x采用的text encoder是123M的OpenAI CLIP ViT-L/14，SD 2.x将text encode
 
 此外，SDXL还提取了OpenCLIP ViT-bigG的 pooled text embedding（用于CLIP对比学习所使用的特征），将其映射到time embedding的维度并与之相加
 
+sd3尿性 但是用了两个clip来pool
+
+sd3 + 方式更骚 还有参数 不同模态还不一样
+
 SDXL总共增加了4个额外的条件注入到UNet，它们分别是pooled text embedding，original size，crop top-left coord和target size（bucket size）。对于后面三个条件，它们可以像timestep一样采用傅立叶编码得到特征，然后我们这些特征和pooled text embedding拼接在一起，最终得到维度为2816（1280+25623）的特征。我们将这个特征采用两个线性层映射到和time embedding一样的维度，然后加在time embedding上即可，具体的实现代码如下所示
 
 
