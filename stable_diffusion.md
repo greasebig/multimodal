@@ -2907,6 +2907,19 @@ This repository is developed based on：https://github.com/google-research/bert
 
 文本数据处理去除无意义标志符，如html这种        
 
+#### 时长
+训练一个epoch       
+8*a100 一天   
+
+
+实际时长    
+一张a100 100万数据 训练三四天   
+100小时     
+十万数据 还是二十万数据 训练一天    
+
+最近出现的高质量文本到图像 (T2I) 模型对人工智能生成内容 (AIGC) 社区产生了深远的影响。 这包括 DALL·E 3 [32]、Midjourney [30] 等专有模型，以及 Stable Diffusion [37] 和 PixArt-α [5] 等开源模型。 尽管如此，开发顶级 T2I 模型需要大量资源； 例如，从头开始训练 SD1.5 需要大约 6000 个 A100 GPU 天 [37]，这对资源有限的个人研究人员构成了巨大障碍，并阻碍了创新
+
+
 
 
 #### 成果
