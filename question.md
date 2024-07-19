@@ -1734,6 +1734,14 @@ lora模型在downblock.midblock,upblocks的crossattnblock中的两个attn中生�
 
 
 ## ddpm在怎么设计分布？各种采样器如何设计分布？
+加噪过程很简单        
+去噪过程通过unet拟合高斯噪声与真实分布的关系      
+每次逐步预测出单步噪声       
+通过推导出的去噪公式-采样器，计算出上一个状态的x，即怎么减去噪声 根据加噪步数进行相应计算 为了最好拟合轨迹       
+
+
+
+
 Copied from diffusers.schedulers.scheduling_ddpm.DDPMScheduler.add_noise     
 ddim,pndm的加噪方式同ddpm. sde_ve不同，euler,heun不同             
 加噪区别是什么？？影响在哪里？？   
