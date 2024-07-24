@@ -3566,7 +3566,8 @@ torch.Size([4, 2560, 8, 8])
 - input_tensor:conv_shortcut
 - output_tensor = (input_tensor + hidden_states)
 
-完成三个resnetblock。res_samples用在这些地方，没用在upsamplers   
+完成三个resnetblock。   
+res_samples用在这些地方，没用在upsamplers   
 
 upsamplers   
 - 最近邻插值两倍放大，torch.Size([4, 1280, 16, 16])
