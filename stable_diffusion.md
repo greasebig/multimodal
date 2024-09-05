@@ -2909,7 +2909,7 @@ This repository is developed based on：https://github.com/google-research/bert
 
 #### 时长
 训练一个epoch       
-8*a100 一天   
+8*a100 一天      
 
 
 实际时长    
@@ -3155,6 +3155,20 @@ quant_conv=Conv2d(8, 8, kernel_size=(1, 1), stride=(1, 1))
 限制logvar(-30,20)   
 
 encode结束，返回posterior没有实际意义，不是mean或logvar   
+
+
+
+当前vae都是resnet+transformer， 包括flux64通道也是
+
+
+
+
+
+
+
+
+
+
 
 
 ### 2.图片encode后加噪等-具体过程  
