@@ -1938,7 +1938,7 @@ Thanks for the great implementations!
 # 跟踪算法
 ### BoT-SORT
 
-
+BoT-SORT算法是在ByteTrack的基础上进行改进，它结合了运动和外观信息、相机运动补偿和更准确的卡尔曼滤波状态向量，增强了目标跟踪的鲁棒性；有益效果在于，通过准确的泳员跟踪得到固定人物的时序信息，用以进行溺水判断。
 
 
 
