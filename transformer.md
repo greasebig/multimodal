@@ -71,6 +71,13 @@
   **Self-Attention 的输入**用矩阵X进行表示，则可以**使用线性变阵矩阵WQ,WK,WV计算得到Q,K,V**。计算如下图所示，注意 X, Q, K, V 的每一行都表示一个单词。  
   ![Alt text](assets_picture/transformer/image-7.png)
 
+
+
+
+
+
+
+
 ### Self-Attention 的输出
   
   得到矩阵 Q, K, V之后就可以计算出 Self-Attention 的输出了，***计算公式***如下：  
@@ -111,6 +118,19 @@ Softmax：Softmax函数的公式是exp(xi) / Σ(exp(xj))，其中xi是输入向�
  到 
  之后，Multi-Head Attention 将它们拼接在一起 (Concat)，然后传入一个Linear层，得到 Multi-Head Attention 最终的输出Z  
  Multi-Head Attention 输出的矩阵Z与其输入的矩阵X的维度是一样的  
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ## Encoder 结构
   ![Alt text](assets_picture/transformer/image-15.png)
@@ -240,8 +260,102 @@ residual,残差2
 论文作者提出用于克服「模型在对当前位置的信息进行编码时，会过度的将注意力集中于自身的位置」的问题。   
 原论文中说的是，将模型分为多个头，形成多个子空间，可以让模型去关注不同方面的信息   
 
-## 代码实现
-```python
+
+### 为什么要 scale √d
+
+transformer中的attention为什么scaled?
+
+《Attention Is All You Need》中解释是：向量的点积结果会很大，将softmax函数push到梯度很小的区域，scaled会缓解这种现象。怎么理解将sotfmax函数push到梯度很小区域？还有为什么scaled是维度的根号，不是其他的数？
+
+
+![alt text](assets/transformer/image-1.png)
+
+![alt text](assets/transformer/image-2.png)
+
+
+得到一个dv维的向量。其中因子 √d 起到调节作用，使得内积不至于太大（太大的话softmax后就非0即1了，不够“soft”了）
+
+
+2. 维度与点积大小的关系是怎么样的，为什么使用维度的根号来放缩？
+针对为什么维度会影响点积的大小，在论文的脚注中其实给出了一点解释：
+
+
+![alt text](assets/transformer/image-3.png)
+
+
+![alt text](assets/transformer/image-4.png)
+
+![alt text](assets/transformer/image-5.png)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### 为什么 transformer 比 cnn 效果好
+1.更好的长距离依赖性建模：传统的CNN模型在处理长距离依赖性问题时会存在一定的问题，因为它们只能通过局部窗口来处理输入数据。 而Transformer模型则通过自注意力机制（self-attention）来**捕捉长距离依赖性**，因此在处理序列数据时表现更好。
+
+
+一、CNN与Transformer对比总结
+
+1. 全局上下文捕获能力
+
+2. 并行化处理
+
+3. 更少的归纳偏置
+
+4. 适应性更强的特征提取
+
+5. 在自然语言处理中的优势
+
+6. 在多模态任务中的应用
+
+
+1. 全局上下文捕获能力
+Transformer：Transformer通过自注意力机制（Self-Attention）能够捕获输入序列中所有位置之间的依赖关系。这意味着无论两个元素在序列中的距离多远，Transformer都可以直接计算它们之间的关系，从而更好地理解全局上下文。
+CNN：卷积神经网络通过卷积核进行局部感知，虽然可以通过增加层数和使用更大的卷积核扩展感受野，但仍然倾向于局部特征提取，较难直接捕获远距离的全局上下文信息。
+
+2. 并行化处理
+Transformer：由于Transformer的自注意力机制可以并行处理输入序列中的所有元素，它们在训练和推理过程中可以更高效地利用GPU和TPU等硬件资源。这种并行化能力使得Transformer在处理长序列时特别高效。
+CNN：卷积操作本身可以并行化，但CNN在处理序列数据时需要逐层进行计算，某些情况下可能不如Transformer的并行效率高。
+
+
+3. 更少的归纳偏置
+Transformer：由于Transformer依赖于自注意力机制而非卷积操作，它对输入数据的结构假设较少。这种灵活性使Transformer能够更广泛地适应各种类型的数据，包括文本、图像和时间序列等。
+CNN：CNN利用卷积核的局部感知和权重共享特性，对图像等有空间局部相关性的任务表现很好，但这种归纳偏置在处理其他类型数据时可能不如Transformer灵活。
+
+
+![alt text](assets/transformer/image.png)
+
+
+
+
+
+
+
+
+
+
+
+## 多头注意力代码实现
+
+
+
 class MultiHeadAttention(nn.Module):
 
     def __init__(self, d_model, n_head):
@@ -300,6 +414,7 @@ class MultiHeadAttention(nn.Module):
         tensor = tensor.transpose(1, 2).contiguous().view(batch_size, length, d_model)
         return tensor
 
+### 注意力
 
 class ScaleDotProductAttention(nn.Module):
     """
@@ -335,7 +450,161 @@ class ScaleDotProductAttention(nn.Module):
 
         return v, score
 
-```
+
+
+# swin transformer
+
+1 网络整体框架
+2 Patch Merging详解
+3 W-MSA详解
+MSA模块计算量
+W-MSA模块计算量
+4 SW-MSA详解
+5 Relative Position Bias详解
+
+Swin Transformer是2021年微软研究院发表在ICCV上的一篇文章，并且已经获得ICCV 2021 best paper的荣誉称号。Swin Transformer网络是Transformer模型在视觉领域的又一次碰撞。该论文一经发表就已在多项视觉任务中霸榜。该论文是在2021年3月发表的，现在是2021年11月了，根据官方提供的信息可以看到，现在还在COCO数据集的目标检测以及实例分割任务中是第一名（见下图State of the Art表示第一）。
+
+
+在正文开始之前，先来简单对比下Swin Transformer和之前的Vision Transformer（如果不了解Vision Transformer的建议先去看下我之前的文章）。下图是Swin Transformer文章中给出的图1，左边是本文要讲的Swin Transformer，右边边是之前讲的Vision Transformer。通过对比至少可以看出两点不同：
 
 
 
+![alt text](assets/transformer/image-6.png)
+
+
+比如特征图尺寸中有对图像下采样4倍的，8倍的以及16倍的，这样的backbone有助于在此基础上构建目标检测，实例分割等任务。而在之前的Vision Transformer中是一开始就直接下采样16倍，后面的特征图也是维持这个下采样率不变。
+
+
+在Swin Transformer中使用了**Windows Multi-Head Self-Attention(W-MSA)**的概念，比如在下图的4倍下采样和8倍下采样中，将特征图划分成了多个不相交的区域（Window），并且**Multi-Head Self-Attention只在每个窗口（Window）内进行**。相对于Vision Transformer中直接对整个（Global）特征图进行Multi-Head Self-Attention，这样做的**目的是能够减少计算量的，尤其是在浅层特征图很大的时候**。这样做虽然减少了计算量但也会隔绝不同窗口之间的信息传递，所以在论文中作者又提出了 **Shifted Windows Multi-Head Self-Attention(SW-MSA)的概念，通过此方法能够让信息在相邻的窗口中进行传递**，后面会细讲。
+
+接下来，简单看下原论文中给出的关于Swin Transformer（Swin-T）网络的架构图。通过图(a)可以看出整个框架的基本流程如下：
+
+![alt text](assets/transformer/image-7.png)
+
+首先将图片输入到Patch Partition模块中进行分块，即每4x4相邻的像素为一个Patch，然后在channel方向展平（flatten）。假设输入的是RGB三通道图片，那么每个patch就有4x4=16个像素，然后每个像素有R、G、B三个值所以展平后是16x3=48，所以通过Patch Partition后图像shape由 [H, W, 3]变成了 [H/4, W/4, 48]。然后在通过Linear Embeding层对每个像素的channel数据做线性变换，由48变成C，即图像shape再由 [H/4, W/4, 48]变成了 [H/4, W/4, C]。其实在源码中Patch Partition和Linear Embeding就是直接通过一个卷积层实现的，和之前Vision Transformer中讲的 Embedding层结构一模一样。
+
+
+然后就是通过四个Stage构建不同大小的特征图，除了Stage1中先通过一个Linear Embeding层外，剩下三个stage都是先通过一个Patch Merging层进行下采样（后面会细讲）。
+
+
+然后都是重复堆叠Swin Transformer Block注意这里的Block其实有两种结构，如图(b)中所示，这两种结构的不同之处仅在于一个使用了W-MSA结构，一个使用了SW-MSA结构。而且这两个结构是成对使用的，先使用一个W-MSA结构再使用一个SW-MSA结构。所以你会发现堆叠Swin Transformer Block的次数都是偶数（因为成对使用）。
+
+最后对于分类网络，后面还会接上一个Layer Norm层、全局池化层以及全连接层得到最终输出。图中没有画，但源码中是这样做的。
+
+接下来，在分别对Patch Merging、W-MSA、SW-MSA以及使用到的相对位置偏执（relative position bias）进行详解。关于Swin Transformer Block中的MLP结构和Vision Transformer中的结构是一样的，所以这里也不在赘述
+
+
+## Patch Merging详解
+前面有说，在每个Stage中首先要通过一个Patch Merging层进行下采样（Stage1除外）。如下图所示，假设输入Patch Merging的是一个4x4大小的单通道特征图（feature map），Patch Merging会将每个2x2的相邻像素划分为一个patch，然后将每个patch中相同位置（同一颜色）像素给拼在一起就得到了4个feature map。接着将这四个feature map在深度方向进行concat拼接，然后在通过一个LayerNorm层。
+
+最后通过一个全连接层在feature map的深度方向做线性变化，将feature map的深度由C变成C/2。通过这个简单的例子可以看出，通过Patch Merging层后，feature map的高和宽会减半，深度会翻倍。
+
+
+![alt text](assets/transformer/image-8.png)
+
+
+引入Windows Multi-head Self-Attention（W-MSA）模块是为了减少计算量。如下图所示，左侧使用的是普通的Multi-head Self-Attention（MSA）模块，对于feature map中的每个像素（或称作token，patch）在Self-Attention计算过程中需要和所有的像素去计算。但在图右侧，在使用Windows Multi-head Self-Attention（W-MSA）模块时，首先将feature map按照MxM（例子中的M=2）大小划分成一个个Windows，然后单独对每个Windows内部进行Self-Attention。
+
+![alt text](assets/transformer/image-9.png)
+
+
+两者的计算量具体差多少呢？原论文中有给出下面两个公式，这里忽略了Softmax的计算复杂度。：
+
+![alt text](assets/transformer/image-10.png)
+
+![alt text](assets/transformer/image-11.png)
+
+![alt text](assets/transformer/image-12.png)
+
+一个 attention 节省 40b flops
+
+Swin Transformer解读— 深入浅出PyTorch
+GitHub Pages
+https://datawhalechina.github.io › 第十章 › Swin-Transf...
+它基于了ViT模型的思想，创新性的引入了滑动窗口机制，让模型能够学习到跨窗口的信息，同时也。同时通过下采样层，使得模型能够处理超分辨率的图片，节省计算量以及能够关注全局 ...
+
+
+FLOPS （全部大写）是floating-point operations per second的缩写，意指每秒浮点运算次数。用来衡量硬件的性能。
+
+FLOPs 是floating point of operations的缩写，是浮点运算次数，可以用来衡量算法/模型复杂度。
+常用当然还有GFLOPs和TFLOPs
+GFLOPS 就是 Giga Floating-point Operations Per Second,即每秒10亿次的浮点运算数,常作为GPU性能参数但不一定代表GPU的实际表现，因为还要考虑具体如何拆分多边形和像素、以及纹理填充，理论上该数值越高越好。1GFlops = 1,000MFlops。
+
+
+所以 vit_B 仅仅 20 GFLOPS ??
+
+![alt text](assets/transformer/image-13.png)
+
+
+convnext t 4 GFLOPS 
+
+![alt text](assets/transformer/image-14.png)
+
+
+![alt text](assets/transformer/image-15.png)
+
+
+![alt text](assets/transformer/image-16.png)
+
+
+![alt text](assets/transformer/image-17.png)
+
+
+作者引入了Shifted Windows Multi-Head Self-Attention（SW-MSA）模块，即进行偏移的W-MSA。如下图所示，左侧使用的是刚刚讲的W-MSA（假设是第L层），那么根据之前介绍的W-MSA和SW-MSA是成对使用的，那么第L+1层使用的就是SW-MSA（右侧图）。根据左右两幅图对比能够发现窗口（Windows）发生了偏移（可以理解成窗口从左上角分别向右侧和下方各偏移了 M/2 个像素）。看下偏移后的窗口（右侧图），比如对于第一行第2列的2x4的窗口，它能够使第L层的第一排的两个窗口信息进行交流。再比如，第二行第二列的4x4的窗口，他能够使第L层的四个窗口信息进行交流，其他的同理。那么这就解决了不同窗口之间无法进行信息交流的问题。
+
+根据上图，可以发现通过将窗口进行偏移后，由原来的4个窗口变成9个窗口了。后面又要对每个窗口内部进行MSA，这样做感觉又变麻烦了。为了解决这个麻烦，作者又提出而了Efficient batch computation for shifted configuration，一种更加高效的计算方法。下面是原论文给的示意图。
+
+
+![alt text](assets/transformer/image-18.png)
+
+然后先将区域A和C移到最下方。
+
+![alt text](assets/transformer/image-19.png)
+
+接着，再将区域A和B移至最右侧。
+
+![alt text](assets/transformer/image-20.png)
+
+
+移动完后，4是一个单独的窗口；将5和3合并成一个窗口；7和1合并成一个窗口；8、6、2和0合并成一个窗口。这样又和原来一样是4个4x4的窗口了，所以能够保证计算量是一样的。这里肯定有人会想，把不同的区域合并在一起（比如5和3）进行MSA，这信息不就乱窜了吗？是的，为了防止这个问题，在实际计算中使用的是masked MSA即带蒙板mask的MSA，这样就能够通过设置蒙板来隔绝不同区域的信息了。关于mask如何使用，可以看下下面这幅图，下图是以上面的区域5和区域3为例。
+
+![alt text](assets/transformer/image-21.png)
+
+所以这样移动做 mask， 不同块儿的，相当于没做，没有信息交互    
+只是为了简单复用 w msa 结构计算，加上mask而已，为了好拼接一起计算        
+
+
+![alt text](assets/transformer/image-22.png)
+
+rope 是直接加载 q k        
+
+
+前言 旋转位置编码（Rotary Position Embedding，RoPE）是论文 Roformer: Enhanced Transformer With Rotray Position Embedding 提出的一种能够将相对位置信息依赖集成到 self-attention 中并提升 transformer 架构性能的位置编码方式。而目前很火的 LLaMA、GLM 模型也是采用该位置编码方式。和相对位置编码相比，RoPE 具有更好的外推性，目前是大模型相对位置编码中应用最广的方式之一。
+
+
+好像是那个时候还没有 rope 也不火     
+
+
+[Submitted on 20 Apr 2021 (v1), last revised 8 Nov 2023 (this version, v5)]
+RoFormer: Enhanced Transformer with Rotary Position Embedding
+
+
+
+由于论文中并没有详解讲解这个相对位置偏执，所以我自己根据阅读源码做了简单的总结。如下图，假设输入的feature map高宽都为2，那么首先我们可以构建出每个像素的绝对位置（左下方的矩阵），对于每个像素的绝对位置是使用行号和列号表示的。比如蓝色的像素对应的是第0行第0列所以绝对位置索引是( 0 , 0 ) (0,0)(0,0)，接下来再看看相对位置索引。首先看下蓝色的像素，在蓝色像素使用q与所有像素k进行匹配过程中，是以蓝色像素为参考点。然后用蓝色像素的绝对位置索引与其他位置索引进行相减，就得到其他位置相对蓝色像素的相对位置索引。例如黄色像素的绝对位置索引是( 0 , 1 ) (0,1)(0,1)，则它相对蓝色像素的相对位置索引为( 0 , 0 ) − ( 0 , 1 ) = ( 0 , − 1 ) (0, 0) - (0, 1)=(0, -1)(0,0)−(0,1)=(0,−1)，这里是严格按照源码中来讲的，请不要杠。那么同理可以得到其他位置相对蓝色像素的相对位置索引矩阵。同样，也能得到相对黄色，红色以及绿色像素的相对位置索引矩阵。接下来将每个相对位置索引矩阵按行展平，并拼接在一起可以得到下面的4x4矩阵 。
+
+
+![alt text](assets/transformer/image-23.png)
+
+
+[Submitted on 25 Mar 2021 (v1), last revised 17 Aug 2021 (this version, v2)]
+Swin Transformer: Hierarchical Vision Transformer using Shifted Windows
+
+
+
+![alt text](assets/transformer/image-24.png)
+
+
+
+
+
+# end

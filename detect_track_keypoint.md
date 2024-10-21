@@ -1,5 +1,24 @@
 
 # 检测
+## yolov3 和 yolov5 区别
+
+OLOv3和YOLOv5都是基于YOLO系列的目标检测算法，它们有一些共同的特点，比如使用Darknet作为主干网络，使用锚框和多尺度特征图进行预测，使用交叉熵损失和均方误差损失进行优化等。
+
+但是，它们也有一些不同之处，主要体现在以下几个方面：
+
+网络结构：YOLOv3使用Darknet-53作为主干网络，YOLOv5使用CSPNet作为主干网络。CSPNet是一种新的网络结构，可以有效地减少特征图的冗余，并提高计算效率和准确率。
+网络输出：YOLOv3使用三个尺度的特征图进行预测，分别是13x13, 26x26, 52x52。YOLOv5使用四个尺度的特征图进行预测，分别是40x40, 80x80, 160x160, 320x320。这样可以增加检测小目标的能力。
+网络输入：YOLOv3使用固定的608x608的输入尺寸，YOLOv5使用可变的640x640的输入尺寸。这样可以适应不同的场景和需求。
+网络参数：YOLOv3有6.15亿个参数，YOLOv5有8.76亿个参数。YOLOv5增加了参数的数量，以提高模型的表达能力和泛化能力。
+网络性能：YOLOv3在COCO数据集上的mAP为33.0%，FPS为20.0。YOLOv5在COCO数据集上的mAP为36.2%，FPS为140.0。YOLOv5在准确率和速度上都优于YOLOv3。
+
+
+
+
+
+
+
+
 
 ## 检测原理
 ### anchor   
@@ -1936,6 +1955,47 @@ Thanks for the great implementations!
 
 
 # 跟踪算法
+## 卡尔曼滤波 和 匈牙利算法
+
+多目标跟踪（MOT）中的卡尔曼滤波（Kalman filter）和匈牙利(Hungarian)
+
+![alt text](assets/detect_track_keypoint/image-3.png)
+
+2. 卡尔曼滤波（Kalman filter）
+目标跟踪中使用的就是最基础的 Kalman filter 算法。这里也仅仅讨论最基础的 Kalman filter 算法。
+
+![alt text](assets/detect_track_keypoint/image-4.png)
+
+卡尔曼滤波算法的过程很简单，如下图所示。最核心的两个步骤就是预测和更新（下图的 correct）。
+
+![alt text](assets/detect_track_keypoint/image-5.png)
+
+
+预测到的 和观察到的 更新          
+为什么不直接用观察到的 ？      
+因为观察到的是另外的变量        
+
+预测 状态转移
+
+
+解决这个问题，就可以用到卡尔曼滤波，用卡尔曼滤波来预测下一帧A和B可能出现的位置，然后进行距离计算。
+
+上图所示，预测A与B可能出现的位置，产生了一个下一时刻预测的实线框，计算预测的实线框与实际出现的虚线框的距离，即可解决上诉问题。(可以利用之前几帧的位置来预测下一帧的位置，即可关联同一目标)
+
+
+![alt text](assets/detect_track_keypoint/image-6.png)
+
+
+
+
+
+
+
+
+
+
+
+
 ### BoT-SORT
 
 BoT-SORT算法是在ByteTrack的基础上进行改进，它结合了运动和外观信息、相机运动补偿和更准确的卡尔曼滤波状态向量，增强了目标跟踪的鲁棒性；有益效果在于，通过准确的泳员跟踪得到固定人物的时序信息，用以进行溺水判断。
