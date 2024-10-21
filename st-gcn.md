@@ -176,22 +176,24 @@ N * M, C, T, V [1, 2, 50, 17]
 十个st_gcn_block和edge_importance，每个st_gcn_block含有gcn和tcn
 edge_importance边界重要程度edge attention，[3,17,17],'stgcn_0.w_0'
 STGCN()
-for gcn, importance in zip(self.st_gcn_networks, self.edge_importance):
-    x, _ = gcn(x, paddle.multiply(self.A, importance))
-x = self.pool(x)  # NM,C,T,V --> NM,C,1,1
-C = x.shape[1]
-x = paddle.reshape(x, (N, M, C, 1, 1)).mean(axis=1)  # N,C,1,1
-return x
+
+    for gcn, importance in zip(self.st_gcn_networks, self.edge_importance):
+        x, _ = gcn(x, paddle.multiply(self.A, importance))
+    x = self.pool(x)  # NM,C,T,V --> NM,C,1,1
+    C = x.shape[1]
+    x = paddle.reshape(x, (N, M, C, 1, 1)).mean(axis=1)  # N,C,1,1
+    return x
 
 st-gcn内部
 def forward(self, x, A):
+
         res = self.residual(x)   第一个block是res=0后面是iden或者指定的conv
         x, A = self.gcn(x, A)
         x = self.tcn(x) + res
         return self.relu(x), A
 
 因为init定义
-# build networks
+    # build networks
         spatial_kernel_size = A.shape[0]
         temporal_kernel_size = 9
         kernel_size = (temporal_kernel_size, spatial_kernel_size)
@@ -222,19 +224,19 @@ def forward(self, x, A):
 
 
 
-(0): st_gcn_block(
-      (gcn): ConvTemporalGraphical(
-        (conv): Conv2D(2, 192, kernel_size=[1, 1], padding=(0, 0), data_format=NCHW)    
-      )
-      (tcn): Sequential(
-        (0): BatchNorm2D(num_features=64, momentum=0.9, epsilon=1e-05)
-        (1): ReLU()
-        (2): Conv2D(64, 64, kernel_size=[9, 1], padding=(4, 0), data_format=NCHW)
-        (3): BatchNorm2D(num_features=64, momentum=0.9, epsilon=1e-05)
-        (4): Dropout(p=0, axis=None, mode=upscale_in_train)
-      )
-      (relu): ReLU()
-    )
+    (0): st_gcn_block(
+        (gcn): ConvTemporalGraphical(
+            (conv): Conv2D(2, 192, kernel_size=[1, 1], padding=(0, 0), data_format=NCHW)    
+        )
+        (tcn): Sequential(
+            (0): BatchNorm2D(num_features=64, momentum=0.9, epsilon=1e-05)
+            (1): ReLU()
+            (2): Conv2D(64, 64, kernel_size=[9, 1], padding=(4, 0), data_format=NCHW)
+            (3): BatchNorm2D(num_features=64, momentum=0.9, epsilon=1e-05)
+            (4): Dropout(p=0, axis=None, mode=upscale_in_train)
+        )
+        (relu): ReLU()
+        )
 
 ```
 
@@ -251,6 +253,7 @@ ST‑GCN是一个基于骨骼点坐标序列进行预测的模型，它通过将
 gcn图卷积，关节的自然连接的空间边(spatial edge)
 ConvTemporalGraphical
 这一块的作用仅在于与A边注意力做矩阵乘法。
+
 def forward(self, x, A):
         assert A.shape[0] == self.kernel_size   3
 
